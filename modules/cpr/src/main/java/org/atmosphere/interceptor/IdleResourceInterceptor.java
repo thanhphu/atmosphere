@@ -18,7 +18,6 @@ package org.atmosphere.interceptor;
 import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.AsynchronousProcessor;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
@@ -40,7 +39,7 @@ import static org.atmosphere.cpr.FrameworkConfig.ASYNCHRONOUS_HOOK;
  *
  * @author Jeanfrancois Arcand
  */
-public class IdleResourceInterceptor extends AtmosphereInterceptorAdapter {
+public class IdleResourceInterceptor extends DefaultInterceptor {
 
     private final Logger logger = LoggerFactory.getLogger(IdleResourceInterceptor.class);
     private long maxInactiveTime = -1;

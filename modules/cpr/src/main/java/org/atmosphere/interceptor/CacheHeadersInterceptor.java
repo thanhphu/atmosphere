@@ -18,7 +18,6 @@ package org.atmosphere.interceptor;
 import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResponse;
@@ -34,7 +33,7 @@ import static org.atmosphere.cpr.HeaderConfig.PRAGMA;
  *
  * @author Jeanfrancois Arcand
  */
-public class CacheHeadersInterceptor extends AtmosphereInterceptorAdapter {
+public class CacheHeadersInterceptor extends DefaultInterceptor {
 
     private boolean injectCacheHeaders;
     private boolean writeHeaders;

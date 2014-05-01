@@ -30,9 +30,9 @@ import org.atmosphere.handler.ReflectorServletProcessor;
 import org.atmosphere.interceptor.AndroidAtmosphereInterceptor;
 import org.atmosphere.interceptor.CacheHeadersInterceptor;
 import org.atmosphere.interceptor.CorsInterceptor;
+import org.atmosphere.interceptor.DefaultInterceptor;
 import org.atmosphere.interceptor.HeartbeatInterceptor;
 import org.atmosphere.interceptor.IdleResourceInterceptor;
-import org.atmosphere.interceptor.InvocationOrder;
 import org.atmosphere.interceptor.InvokationOrder;
 import org.atmosphere.interceptor.JSONPAtmosphereInterceptor;
 import org.atmosphere.interceptor.JavaScriptProtocol;
@@ -150,10 +150,10 @@ public class AtmosphereFramework {
     public static final String DEFAULT_HANDLER_PATH = "/WEB-INF/classes/";
     public static final String MAPPING_REGEX = "[a-zA-Z0-9-&.*_~=@;\\?]+";
 
-    // Seems we can expose default interceptors like this
-    // Keep defaultInterceptors() method for backward compatibility but deprecate it if accepted
-    // Consider that an default interceptor MUST BE an InvocationOrder
-    public static final Class<? extends InvocationOrder>[] DEFAULT_INTERCEPTORS = new Class[]{
+    /**
+     * Each class of this array MUST extend {@link DefaultInterceptor} to always expose a valid {@link org.atmosphere.interceptor.Priority}.
+     */
+    public static final Class<? extends DefaultInterceptor>[] DEFAULT_INTERCEPTORS = new Class[]{
             // Add CORS support
             CorsInterceptor.class,
             // Default Interceptor
@@ -905,6 +905,10 @@ public class AtmosphereFramework {
             }
 
             for (Class<? extends AtmosphereInterceptor> a : DEFAULT_INTERCEPTORS) {
+                if (!DefaultInterceptor.class.isAssignableFrom(a)) {
+                    throw new IllegalStateException(String.format("%s must extend %s", a.getName(), DefaultInterceptor.class.getName()));
+                }
+
                 if (!excludedInterceptors.contains(a.getName())) {
                     interceptors.add(newAInterceptor(a));
                 } else {

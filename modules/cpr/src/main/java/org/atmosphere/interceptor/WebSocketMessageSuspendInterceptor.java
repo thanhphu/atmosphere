@@ -16,10 +16,8 @@
 package org.atmosphere.interceptor;
 
 import org.atmosphere.cpr.Action;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
-import org.atmosphere.cpr.FrameworkConfig;
 import org.atmosphere.util.Utils;
 
 /**
@@ -27,7 +25,7 @@ import org.atmosphere.util.Utils;
  *
  * @author Jeanfrancois Arcand
  */
-public class WebSocketMessageSuspendInterceptor extends AtmosphereInterceptorAdapter {
+public class WebSocketMessageSuspendInterceptor extends DefaultInterceptor {
 
     @Override
     public Action inspect(AtmosphereResource r) {

@@ -18,7 +18,6 @@ package org.atmosphere.interceptor;
 import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResponse;
@@ -28,7 +27,7 @@ import org.atmosphere.cpr.AtmosphereResponse;
  *
  * @author Janusz Sobolewski
  */
-public class CorsInterceptor extends AtmosphereInterceptorAdapter {
+public class CorsInterceptor extends DefaultInterceptor {
 
     private boolean enableAccessControl = true;
 

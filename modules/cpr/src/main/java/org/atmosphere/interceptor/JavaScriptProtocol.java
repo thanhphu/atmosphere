@@ -19,7 +19,6 @@ import org.atmosphere.client.TrackMessageSizeFilter;
 import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceEvent;
@@ -43,7 +42,7 @@ import static org.atmosphere.cpr.FrameworkConfig.CALLBACK_JAVASCRIPT_PROTOCOL;
  *
  * @author Jeanfrancois Arcand
  */
-public class JavaScriptProtocol extends AtmosphereInterceptorAdapter {
+public class JavaScriptProtocol extends DefaultInterceptor {
 
     private final static Logger logger = LoggerFactory.getLogger(JavaScriptProtocol.class);
     private String wsDelimiter = "|";

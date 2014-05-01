@@ -20,7 +20,6 @@ import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AsyncIOInterceptorAdapter;
 import org.atmosphere.cpr.AsyncIOWriter;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereInterceptorWriter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
@@ -43,7 +42,7 @@ import static org.atmosphere.cpr.FrameworkConfig.CONTAINER_RESPONSE;
  *
  * @author Jeanfrancois Arcand
  */
-public class SSEAtmosphereInterceptor extends AtmosphereInterceptorAdapter {
+public class SSEAtmosphereInterceptor extends DefaultInterceptor {
 
     private static final Logger logger = LoggerFactory.getLogger(SSEAtmosphereInterceptor.class);
 

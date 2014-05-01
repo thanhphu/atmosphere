@@ -19,7 +19,6 @@ import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.AsyncIOInterceptorAdapter;
 import org.atmosphere.cpr.AsyncIOWriter;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereInterceptorWriter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
@@ -43,7 +42,7 @@ import java.util.concurrent.TimeUnit;
  *
  * @author Jeanfrancois Arcand
  */
-public class HeartbeatInterceptor extends AtmosphereInterceptorAdapter {
+public class HeartbeatInterceptor extends DefaultInterceptor {
 
     public final static String HEARTBEAT_INTERVAL_IN_SECONDS = HeartbeatInterceptor.class.getName() + ".heartbeatFrequencyInSeconds";
     public final static String INTERCEPTOR_ADDED = HeartbeatInterceptor.class.getName();

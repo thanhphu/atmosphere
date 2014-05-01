@@ -20,12 +20,18 @@ import org.atmosphere.interceptor.InvokationOrder;
 import org.atmosphere.interceptor.Priority;
 
 /**
+ * <p>
  * A Simple {@link AtmosphereInterceptor} that creates an {@link AtmosphereInterceptorWriter} and sets it as
  * the default {@link AsyncIOWriter} on an {@link AtmosphereResponse}.
+ * </p>
+ *
+ * <p>
+ * The default priority of this class will cause its execution after default interceptors.
+ * </p>
  *
  * @author Jeanfrancois Arcand
  */
-public abstract class AtmosphereInterceptorAdapter implements AtmosphereInterceptor, InvokationOrder, InvocationOrder {
+public abstract class AtmosphereInterceptorAdapter implements InvokationOrder, InvocationOrder {
 
     @Override
     public void configure(AtmosphereConfig config) {
@@ -49,11 +55,9 @@ public abstract class AtmosphereInterceptorAdapter implements AtmosphereIntercep
         return InvokationOrder.AFTER_DEFAULT;
     }
 
-    // By default, it should be an 'after default' priority but for the test we set priority that works with default interceptors
-    // If accepted, we should create an intermediate class between this one and all the default interceptors to override this method
     @Override
     public Priority getPriority() {
-        return new Priority.Builder(this).afterDefault(false).build();
+        return new Priority.Builder(this).build();
     }
 
     @Override

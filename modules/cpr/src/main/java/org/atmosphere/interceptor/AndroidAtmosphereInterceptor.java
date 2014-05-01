@@ -18,7 +18,6 @@ package org.atmosphere.interceptor;
 import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.AsyncIOInterceptorAdapter;
 import org.atmosphere.cpr.AsyncIOWriter;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereInterceptorWriter;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResource.TRANSPORT;
@@ -31,7 +30,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Jeanfrancois Arcand
  */
-public class AndroidAtmosphereInterceptor extends AtmosphereInterceptorAdapter {
+public class AndroidAtmosphereInterceptor extends DefaultInterceptor {
 
     private static final Logger logger = LoggerFactory.getLogger(AndroidAtmosphereInterceptor.class);
 

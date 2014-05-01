@@ -19,7 +19,6 @@ import org.atmosphere.cpr.Action;
 import org.atmosphere.cpr.AsyncIOInterceptorAdapter;
 import org.atmosphere.cpr.AsyncIOWriter;
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereInterceptorWriter;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
@@ -36,7 +35,7 @@ import java.io.IOException;
  *
  * @author Jeanfrancois Arcand
  */
-public class JSONPAtmosphereInterceptor extends AtmosphereInterceptorAdapter {
+public class JSONPAtmosphereInterceptor extends DefaultInterceptor {
 
     private static final Logger logger = LoggerFactory.getLogger(JSONPAtmosphereInterceptor.class);
     private String endChunk = "\"});";

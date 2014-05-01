@@ -2755,7 +2755,16 @@ public class AtmosphereFramework {
         return excludedInterceptors;
     }
 
-    public Class<? extends AtmosphereInterceptor>[] defaultInterceptors(){
+    /**
+     * <p>
+     * Default interceptors list is immutable so this method will always return the same array. Prefer direct access to
+     * {@link #DEFAULT_INTERCEPTORS}.
+     * </p>
+     *
+     * @return {@link #DEFAULT_INTERCEPTORS}
+     */
+    @Deprecated
+    public Class<? extends AtmosphereInterceptor>[] defaultInterceptors() {
         return DEFAULT_INTERCEPTORS;
     }
 }

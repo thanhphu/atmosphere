@@ -32,6 +32,7 @@ import org.atmosphere.interceptor.CacheHeadersInterceptor;
 import org.atmosphere.interceptor.CorsInterceptor;
 import org.atmosphere.interceptor.HeartbeatInterceptor;
 import org.atmosphere.interceptor.IdleResourceInterceptor;
+import org.atmosphere.interceptor.InvocationOrder;
 import org.atmosphere.interceptor.InvokationOrder;
 import org.atmosphere.interceptor.JSONPAtmosphereInterceptor;
 import org.atmosphere.interceptor.JavaScriptProtocol;
@@ -80,17 +81,8 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.URLDecoder;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -158,6 +150,34 @@ public class AtmosphereFramework {
     public static final String DEFAULT_HANDLER_PATH = "/WEB-INF/classes/";
     public static final String MAPPING_REGEX = "[a-zA-Z0-9-&.*_~=@;\\?]+";
 
+    // Seems we can expose default interceptors like this
+    // Keep defaultInterceptors() method for backward compatibility but deprecate it if accepted
+    // Consider that an default interceptor MUST BE an InvocationOrder
+    public static final Class<? extends InvocationOrder>[] DEFAULT_INTERCEPTORS = new Class[]{
+            // Add CORS support
+            CorsInterceptor.class,
+            // Default Interceptor
+            CacheHeadersInterceptor.class,
+            // WebKit & IE Padding
+            PaddingAtmosphereInterceptor.class,
+            // Android 2.3.x streaming support
+            AndroidAtmosphereInterceptor.class,
+            // Heartbeat
+            HeartbeatInterceptor.class,
+            // Add SSE support
+            SSEAtmosphereInterceptor.class,
+            // ADD JSONP support
+            JSONPAtmosphereInterceptor.class,
+            // ADD Tracking ID Handshake
+            JavaScriptProtocol.class,
+            // WebSocket and suspend
+            WebSocketMessageSuspendInterceptor.class,
+            // OnDisconnect
+            OnDisconnectInterceptor.class,
+            // Idle connection
+            IdleResourceInterceptor.class
+    };
+
     protected static final Logger logger = LoggerFactory.getLogger(AtmosphereFramework.class);
 
     protected final List<String> broadcasterFilters = new ArrayList<String>();
@@ -218,30 +238,6 @@ public class AtmosphereFramework {
     protected final LinkedList<BroadcasterCacheListener> broadcasterCacheListeners = new LinkedList<BroadcasterCacheListener>();
     protected final List<BroadcasterConfig.FilterManipulator> filterManipulators = new ArrayList<BroadcasterConfig.FilterManipulator>();
     protected final AtmosphereResourceFactory arFactory = new AtmosphereResourceFactory();
-    protected final Class<? extends AtmosphereInterceptor>[] defaultInterceptors = new Class[]{
-            // Add CORS support
-            CorsInterceptor.class,
-            // Default Interceptor
-            CacheHeadersInterceptor.class,
-            // WebKit & IE Padding
-            PaddingAtmosphereInterceptor.class,
-            // Android 2.3.x streaming support
-            AndroidAtmosphereInterceptor.class,
-            // Heartbeat
-            HeartbeatInterceptor.class,
-            // Add SSE support
-            SSEAtmosphereInterceptor.class,
-            // ADD JSONP support
-            JSONPAtmosphereInterceptor.class,
-            // ADD Tracking ID Handshake
-            JavaScriptProtocol.class,
-            // WebSocket and suspend
-            WebSocketMessageSuspendInterceptor.class,
-            // OnDisconnect
-            OnDisconnectInterceptor.class,
-            // Idle connection
-            IdleResourceInterceptor.class
-    };
 
     /**
      * An implementation of {@link AbstractReflectorAtmosphereHandler}.
@@ -908,7 +904,7 @@ public class AtmosphereFramework {
                 interceptors.clear();
             }
 
-            for (Class<? extends AtmosphereInterceptor> a : defaultInterceptors) {
+            for (Class<? extends AtmosphereInterceptor> a : DEFAULT_INTERCEPTORS) {
                 if (!excludedInterceptors.contains(a.getName())) {
                     interceptors.add(newAInterceptor(a));
                 } else {
@@ -2756,6 +2752,6 @@ public class AtmosphereFramework {
     }
 
     public Class<? extends AtmosphereInterceptor>[] defaultInterceptors(){
-        return defaultInterceptors;
+        return DEFAULT_INTERCEPTORS;
     }
 }

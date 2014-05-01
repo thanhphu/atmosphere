@@ -15,7 +15,9 @@
  */
 package org.atmosphere.cpr;
 
+import org.atmosphere.interceptor.InvocationOrder;
 import org.atmosphere.interceptor.InvokationOrder;
+import org.atmosphere.interceptor.Priority;
 
 /**
  * A Simple {@link AtmosphereInterceptor} that creates an {@link AtmosphereInterceptorWriter} and sets it as
@@ -23,7 +25,7 @@ import org.atmosphere.interceptor.InvokationOrder;
  *
  * @author Jeanfrancois Arcand
  */
-public abstract class AtmosphereInterceptorAdapter implements AtmosphereInterceptor, InvokationOrder {
+public abstract class AtmosphereInterceptorAdapter implements AtmosphereInterceptor, InvokationOrder, InvocationOrder {
 
     @Override
     public void configure(AtmosphereConfig config) {
@@ -45,6 +47,13 @@ public abstract class AtmosphereInterceptorAdapter implements AtmosphereIntercep
     @Override
     public PRIORITY priority() {
         return InvokationOrder.AFTER_DEFAULT;
+    }
+
+    // By default, it should be an 'after default' priority but for the test we set priority that works with default interceptors
+    // If accepted, we should create an intermediate class between this one and all the default interceptors to override this method
+    @Override
+    public Priority getPriority() {
+        return new Priority.Builder(this).afterDefault(false).build();
     }
 
     @Override

@@ -40,6 +40,7 @@ import org.atmosphere.container.Tomcat7CometSupport;
 import org.atmosphere.container.Tomcat7Servlet30SupportWithWebSocket;
 import org.atmosphere.container.TomcatCometSupport;
 import org.atmosphere.container.WebLogicServlet30WithWebSocket;
+import org.atmosphere.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,8 +79,12 @@ public class DefaultAsyncSupportResolver implements AsyncSupportResolver {
 
     private final AtmosphereConfig config;
 
+    private final boolean suppress356;
+
     public DefaultAsyncSupportResolver(final AtmosphereConfig config) {
         this.config = config;
+        this.suppress356 = 
+            Boolean.parseBoolean(config.getInitParameter(ApplicationConfig.WEBSOCKET_SUPPRESS_JSR356));
     }
 
     /**
@@ -90,14 +95,10 @@ public class DefaultAsyncSupportResolver implements AsyncSupportResolver {
      */
     protected boolean testClassExists(final String testClass) {
         try {
-            return testClass != null && testClass.length() > 0 &&
-                    Thread.currentThread().getContextClassLoader().loadClass(testClass) != null;
-        } catch (ClassNotFoundException ex) {
-            return false;
-        } catch (NoClassDefFoundError ex) {
-            return false;
-            // JDK 7
-        } catch (UnsupportedClassVersionError ex) {
+            final boolean exists = testClass != null && testClass.length() > 0 && IOUtils.loadClass(null, testClass) != null;
+            logger.debug(exists ? "Found {}" : "Not found {}", testClass);
+            return exists; 
+        } catch (Exception ex) {
             return false;
         }
     }
@@ -152,53 +153,55 @@ public class DefaultAsyncSupportResolver implements AsyncSupportResolver {
             {
                 if (useServlet30Async && !useNativeIfPossible) {
 
-                    if (testClassExists(TOMCAT_WEBSOCKET))
-                        add(Tomcat7Servlet30SupportWithWebSocket.class);
-
-                    if (testClassExists(JETTY_9))
-                        add(Jetty9AsyncSupportWithWebSocket.class);
-
-                    if (testClassExists(JETTY_8))
-                        add(JettyServlet30AsyncSupportWithWebSocket.class);
-
-                    if (testClassExists(GRIZZLY2_WEBSOCKET))
-                        add(GlassFishServ30WebSocketSupport.class);
-
-                    if (testClassExists(GRIZZLY_WEBSOCKET))
-                        add(GrizzlyServlet30WebSocketSupport.class);
-
-                    if (testClassExists(WEBLOGIC_WEBSOCKET) && !testClassExists(HK2)) {
-                        logger.warn("***************************************************************************************************");
-                        logger.warn("WebLogic WebSocket detected and will be deployed under the hardcoded path <<application-name>>/ws/*");
-                        logger.warn("***************************************************************************************************");
-                        add(WebLogicServlet30WithWebSocket.class);
-                    }
-
-                    if (testClassExists(JSR356_WEBSOCKET))
+                    if (!suppress356 && testClassExists(JSR356_WEBSOCKET)) {
                         add(JSR356AsyncSupport.class);
-                } else {
-                    if (testClassExists(TOMCAT_WEBSOCKET))
-                        add(Tomcat7AsyncSupportWithWebSocket.class);
+                    } else {
 
-                    if (testClassExists(JETTY_9))
-                        add(Jetty9AsyncSupportWithWebSocket.class);
+                        if (testClassExists(TOMCAT_WEBSOCKET))
+                            add(Tomcat7Servlet30SupportWithWebSocket.class);
 
-                    if (testClassExists(JETTY_8))
-                        add(JettyAsyncSupportWithWebSocket.class);
+                        if (testClassExists(JETTY_9))
+                            add(Jetty9AsyncSupportWithWebSocket.class);
 
-                    if (testClassExists(GRIZZLY_WEBSOCKET))
-                        add(GlassFishWebSocketSupport.class);
+                        if (testClassExists(JETTY_8))
+                            add(JettyServlet30AsyncSupportWithWebSocket.class);
 
-                    if (testClassExists(GRIZZLY2_WEBSOCKET))
-                        add(Grizzly2WebSocketSupport.class);
+                        if (testClassExists(GRIZZLY2_WEBSOCKET))
+                            add(GlassFishServ30WebSocketSupport.class);
 
-                    if (testClassExists(JBOSS_AS7_WEBSOCKET))
-                        add(JBossAsyncSupportWithWebSocket.class);
+                        if (testClassExists(GRIZZLY_WEBSOCKET))
+                            add(GrizzlyServlet30WebSocketSupport.class);
 
-                    if (isEmpty()) {
-                        if (testClassExists(JSR356_WEBSOCKET))
-                            add(JSR356AsyncSupport.class);
+                        if (testClassExists(WEBLOGIC_WEBSOCKET) && !testClassExists(HK2)) {
+                            logger.warn("***************************************************************************************************");
+                            logger.warn("WebLogic WebSocket detected and will be deployed under the hardcoded path <<application-name>>/ws/*");
+                            logger.warn("***************************************************************************************************");
+                            add(WebLogicServlet30WithWebSocket.class);
+                        }
                     }
+                } else {
+                    if (!suppress356 && testClassExists(JSR356_WEBSOCKET)) {
+                        add(JSR356AsyncSupport.class);
+                    } else {
+                        if (testClassExists(TOMCAT_WEBSOCKET))
+                            add(Tomcat7AsyncSupportWithWebSocket.class);
+
+                        if (testClassExists(JETTY_9))
+                            add(Jetty9AsyncSupportWithWebSocket.class);
+
+                        if (testClassExists(JETTY_8))
+                            add(JettyAsyncSupportWithWebSocket.class);
+
+                        if (testClassExists(GRIZZLY_WEBSOCKET))
+                            add(GlassFishWebSocketSupport.class);
+
+                        if (testClassExists(GRIZZLY2_WEBSOCKET))
+                            add(Grizzly2WebSocketSupport.class);
+
+                        if (testClassExists(JBOSS_AS7_WEBSOCKET))
+                            add(JBossAsyncSupportWithWebSocket.class);
+                    }
+
                 }
             }
         };
@@ -224,17 +227,20 @@ public class DefaultAsyncSupportResolver implements AsyncSupportResolver {
      * The class has to have a visible constructor with the signature (@link {AtmosphereConfig}).
      *
      * @param targetClass
-     * @return an instance of the specified class
+     * @return an instance of the specified class or null if the class cannot be instantiated
      */
     public AsyncSupport newCometSupport(final Class<? extends AsyncSupport> targetClass) {
         try {
             return (AsyncSupport) targetClass.getDeclaredConstructor(new Class[]{AtmosphereConfig.class})
                     .newInstance(config);
         } catch (final Exception e) {
-            logger.error("Failed to create comet support class: {}, error: {}", targetClass, e);
-            logger.error("Switching to BlockingIO");
+            logger.warn("Failed to create AsyncSupport class: {}, error: {}", targetClass, e);
 
-            return new BlockingIOCometSupport(config);
+            Throwable cause = e.getCause();
+            if (cause != null) {
+                logger.error("Real error: {}", cause.getMessage(), cause);
+            }
+            return null;
         }
     }
 
@@ -244,7 +250,11 @@ public class DefaultAsyncSupportResolver implements AsyncSupportResolver {
             return (AsyncSupport) cl.loadClass(targetClassFQN)
                     .getDeclaredConstructor(new Class[]{AtmosphereConfig.class}).newInstance(config);
         } catch (final Exception e) {
-            logger.error("Failed to create comet support class: {}, error: {}", targetClassFQN, e);
+            logger.error("Failed to create AsyncSupport class: {}, error: {}", targetClassFQN, e);
+            Throwable cause = e.getCause();
+            if (cause != null) {
+                logger.error("Real error: {}", cause.getMessage(), cause);
+            }
             throw new IllegalArgumentException("Unable to create " + targetClassFQN, e);
         }
     }

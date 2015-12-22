@@ -20,6 +20,8 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.atmosphere.pool.BoundedApachePoolableProvider;
 import org.atmosphere.pool.PoolableBroadcasterFactory;
 import org.atmosphere.pool.UnboundedApachePoolableProvider;
+import org.atmosphere.util.ExecutorsFactory;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -52,6 +54,13 @@ public class PoolableBroadcasterFactoryTest {
         factory = new PoolableBroadcasterFactory(DefaultBroadcaster.class, "NEVER", config);
         factory.poolableProvider(new BoundedApachePoolableProvider());
         f.setBroadcasterFactory(factory);
+    }
+
+    @AfterMethod
+    public void unSet() throws Exception {
+        config.destroy();
+        ExecutorsFactory.reset(config);
+        factory.destroy();
     }
 
     @Test
@@ -107,7 +116,6 @@ public class PoolableBroadcasterFactoryTest {
             @Override
             public void onPostCreate(Broadcaster b) {
                 created.incrementAndGet();
-                latch.countDown();
             }
 
             @Override
@@ -123,25 +131,22 @@ public class PoolableBroadcasterFactoryTest {
 
         final ConcurrentLinkedQueue<Broadcaster> c = new ConcurrentLinkedQueue<Broadcaster>();
         ExecutorService r = Executors.newCachedThreadPool();
-        try {
-            for (int i = 0; i < 100; i++) {
-                r.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        c.add(factory.lookup("name" + UUID.randomUUID().toString(), true));
-                    }
-                });
-            }
-        } finally {
-            r.shutdown();
+        for (int i = 0; i < 100; i++) {
+            r.submit(new Runnable() {
+                @Override
+                public void run() {
+                    c.add(factory.lookup("name" + UUID.randomUUID().toString(), true));
+                    latch.countDown();
+                }
+            });
         }
-        latch.await();
 
         try {
-            assertEquals(c.size(), 100);
+            assertTrue(latch.await(20, TimeUnit.SECONDS));
             assertEquals(created.get(), 100);
+            assertEquals(c.size(), 100);
 
-            for (Broadcaster b: c) {
+            for (Broadcaster b : c) {
                 b.destroy();
             }
 
@@ -151,8 +156,8 @@ public class PoolableBroadcasterFactoryTest {
 
         } finally {
             factory.destroy();
+            r.shutdownNow();
         }
-
 
     }
 
@@ -165,7 +170,6 @@ public class PoolableBroadcasterFactoryTest {
             @Override
             public void onPostCreate(Broadcaster b) {
                 created.incrementAndGet();
-                latch.countDown();
             }
 
             @Override
@@ -181,30 +185,24 @@ public class PoolableBroadcasterFactoryTest {
 
         final ConcurrentLinkedQueue<Broadcaster> c = new ConcurrentLinkedQueue<Broadcaster>();
         ExecutorService r = Executors.newCachedThreadPool();
-        try {
-            for (int i = 0; i < 1000; i++) {
-                r.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            c.add(factory.get(new String("me")));
-                        } catch (IllegalStateException ex) {
-                            latch.countDown();
-                        }
-                    }
-                });
+        final String me = new String("me");
+        for (int i = 0; i < 1000; i++) {
+            r.submit(new Runnable() {
+                @Override
+                public void run() {
+                    c.add(factory.get(me));
+                    latch.countDown();
+                }
+            });
 
-            }
-        } finally {
-            r.shutdown();
         }
-        latch.await(10, TimeUnit.SECONDS);
         try {
+            assertTrue(latch.await(20, TimeUnit.SECONDS));
             assertEquals(latch.getCount(), 0);
             assertEquals(c.size(), 1000);
             assertEquals(created.get(), 1000);
 
-            for (Broadcaster b: c) {
+            for (Broadcaster b : c) {
                 b.destroy();
             }
 
@@ -215,6 +213,7 @@ public class PoolableBroadcasterFactoryTest {
 
         } finally {
             factory.destroy();
+            r.shutdownNow();
         }
 
     }

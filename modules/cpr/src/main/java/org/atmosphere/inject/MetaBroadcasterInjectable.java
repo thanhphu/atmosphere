@@ -16,12 +16,13 @@
 package org.atmosphere.inject;
 
 import org.atmosphere.cpr.AtmosphereConfig;
-import org.atmosphere.cpr.DefaultMetaBroadcaster;
 import org.atmosphere.cpr.MetaBroadcaster;
+import org.atmosphere.inject.annotation.ApplicationScoped;
 
 import java.lang.reflect.Type;
 
-    public class MetaBroadcasterInjectable implements Injectable<MetaBroadcaster> {
+@ApplicationScoped
+public class MetaBroadcasterInjectable implements Injectable<MetaBroadcaster> {
 
     @Override
     public boolean supportedType(Type t) {

@@ -19,6 +19,7 @@ import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AtmosphereConfig;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
+import org.atmosphere.cpr.FrameworkConfig;
 import org.atmosphere.websocket.WebSocket;
 import org.atmosphere.websocket.WebSocketProcessor;
 import org.atmosphere.websocket.WebSocketProtocol;
@@ -46,6 +47,7 @@ import static org.atmosphere.websocket.protocol.ProtocolUtil.constructRequest;
  */
 public class SimpleHttpProtocol implements WebSocketProtocol, Serializable {
 
+    private static final long serialVersionUID = 7526472295622776111L;
     private static final Logger logger = LoggerFactory.getLogger(SimpleHttpProtocol.class);
     protected final static String TEXT = "text/plain";
     protected String contentType = TEXT;
@@ -88,6 +90,7 @@ public class SimpleHttpProtocol implements WebSocketProtocol, Serializable {
             return null;
         }
         AtmosphereRequest request = resource.getRequest(false);
+        request.setAttribute(FrameworkConfig.WEBSOCKET_SUBPROTOCOL, FrameworkConfig.SIMPLE_HTTP_OVER_WEBSOCKET);
 
         if (!resource.isInScope()) return Collections.emptyList();
 
@@ -113,7 +116,7 @@ public class SimpleHttpProtocol implements WebSocketProtocol, Serializable {
         }
 
         List<AtmosphereRequest> list = new ArrayList<AtmosphereRequest>();
-        list.add(constructRequest(resource, pathInfo, requestURI, methodType, contentType.equalsIgnoreCase(TEXT) ? null : contentType, destroyable).body(message).build());
+        list.add(constructRequest(webSocket, pathInfo, requestURI, methodType, contentType.equalsIgnoreCase(TEXT) ? null : contentType, destroyable).body(message).build());
 
         return list;
     }
@@ -129,11 +132,12 @@ public class SimpleHttpProtocol implements WebSocketProtocol, Serializable {
         }
 
         AtmosphereRequest request = resource.getRequest(false);
+        request.setAttribute(FrameworkConfig.WEBSOCKET_SUBPROTOCOL, FrameworkConfig.SIMPLE_HTTP_OVER_WEBSOCKET);
 
         if (!resource.isInScope()) return Collections.emptyList();
 
         List<AtmosphereRequest> list = new ArrayList<AtmosphereRequest>();
-        list.add(constructRequest(resource, request.getPathInfo(), request.getRequestURI(), methodType, contentType.equalsIgnoreCase(TEXT) ? null : contentType, destroyable).body(d, offset, length).build());
+        list.add(constructRequest(webSocket, request.getPathInfo(), request.getRequestURI(), methodType, contentType.equalsIgnoreCase(TEXT) ? null : contentType, destroyable).body(d, offset, length).build());
 
         return list;
     }

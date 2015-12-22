@@ -61,6 +61,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     private AtmosphereResponse response;
     private final Action action = new Action();
     protected final List<Broadcaster> broadcasters = new CopyOnWriteArrayList<Broadcaster>();
+    protected Broadcaster broadcaster;
     private AtmosphereConfig config;
     protected AsyncSupport asyncSupport;
     private Serializer serializer;
@@ -69,8 +70,8 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     private final AtomicBoolean isResumed = new AtomicBoolean();
     private final AtomicBoolean isCancelled = new AtomicBoolean();
     private final AtomicBoolean resumeOnBroadcast = new AtomicBoolean();
-    private Object writeOnTimeout = null;
-    private boolean disableSuspend = false;
+    private Object writeOnTimeout;
+    private boolean disableSuspend;
     private final AtomicBoolean disconnected = new AtomicBoolean();
 
     private final ConcurrentLinkedQueue<AtmosphereResourceEventListener> listeners =
@@ -86,7 +87,8 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     private final AtomicBoolean suspended = new AtomicBoolean();
     private WebSocket webSocket;
     private final AtomicBoolean inClosingPhase = new AtomicBoolean();
-    private boolean closeOnCancel = false;
+    private boolean closeOnCancel;
+    private final AtomicBoolean isPendingClose = new AtomicBoolean();
 
     public AtmosphereResourceImpl() {
     }
@@ -120,7 +122,8 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
         this.atmosphereHandler = atmosphereHandler;
         this.event = new AtmosphereResourceEventImpl(this);
 
-        broadcasters.add(broadcaster);
+        this.broadcaster = broadcaster;
+        uniqueBroadcaster(broadcaster);
 
         String s = (String) req.getAttribute(SUSPENDED_ATMOSPHERE_RESOURCE_UUID);
         if (s == null) {
@@ -301,14 +304,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
             logger.trace("Wasn't able to resume a connection {}", this, t);
         } finally {
             unregister();
-            try {
-                Meteor m = (Meteor) req.getAttribute(METEOR);
-                if (m != null) {
-                    m.destroy();
-                }
-            } catch (Exception ex) {
-                logger.debug("Meteor resume exception: Cannot resume an already resumed/cancelled request", ex);
-            }
+            Utils.destroyMeteor(req);
         }
         listeners.clear();
         return this;
@@ -389,7 +385,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
                 skipCreation = true;
             }
 
-            Broadcaster broadcaster = broadcasters.get(0);
+            Broadcaster broadcaster = getBroadcaster();
 
             // Null means SCOPE=REQUEST set by a Meteor
             if (!skipCreation && (broadcaster == null || broadcaster.getScope() == Broadcaster.SCOPE.REQUEST) && !isJersey) {
@@ -397,7 +393,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
                 Class<? extends Broadcaster> clazz = broadcaster != null ? broadcaster.getClass() : DefaultBroadcaster.class;
 
                 broadcaster = config.getBroadcasterFactory().lookup(clazz, id, false);
-                if (broadcaster == null || broadcaster.getAtmosphereResources().size() > 0) {
+                if (broadcaster == null || !broadcaster.getAtmosphereResources().isEmpty()) {
                     broadcaster = config.getBroadcasterFactory().lookup(clazz, id + "/" + UUID.randomUUID(), true);
                 }
             }
@@ -451,7 +447,6 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     }
 
     protected Broadcaster getBroadcaster(boolean autoCreate) {
-        Broadcaster broadcaster = broadcasters.size() == 0 ? null : broadcasters.get(0);
         if (broadcaster == null) {
             throw new IllegalStateException("No Broadcaster associated with this AtmosphereResource.");
         }
@@ -480,20 +475,14 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     }
 
     @Override
-    public AtmosphereResourceImpl setBroadcaster(Broadcaster broadcaster) {
-        // For legacy
-        if (broadcasters.size() == 0) {
-            broadcasters.add(broadcaster);
-        } else {
-            broadcasters.set(0, broadcaster);
-        }
-        return this;
+    public AtmosphereResource setBroadcaster(Broadcaster broadcaster) {
+        this.broadcaster = broadcaster;
+        return uniqueBroadcaster(broadcaster);
     }
 
     @Override
     public AtmosphereResource addBroadcaster(Broadcaster broadcaster) {
-        broadcasters.add(broadcaster);
-        return this;
+        return uniqueBroadcaster(broadcaster);
     }
 
     @Override
@@ -501,6 +490,22 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
         broadcasters.remove(broadcaster);
         return this;
     }
+
+    protected AtmosphereResource uniqueBroadcaster(Broadcaster newB) {
+        if (newB == null) {
+            return this;
+        }
+        // TODO: performance bottleneck
+        for (Broadcaster b: broadcasters) {
+            if (b.getID() != null && b.getID().equalsIgnoreCase(newB.getID())) {
+                logger.trace("Duplicate Broadcaster {}", newB);
+                return this;
+            }
+        }
+        broadcasters.add(newB);
+        return this;
+    }
+
 
     @Override
     public AtmosphereConfig getAtmosphereConfig() {
@@ -522,6 +527,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     public void reset() {
         isResumed.set(false);
         isCancelled.set(false);
+        isPendingClose.set(false);
         isInScope.set(true);
         isSuspendEvent.set(false);
         listeners.clear();
@@ -673,8 +679,8 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
     }
 
     @Override
-    public AtmosphereResource removeFromAllBroadcasters(){
-        for (Broadcaster b: broadcasters) {
+    public AtmosphereResource removeFromAllBroadcasters() {
+        for (Broadcaster b : broadcasters) {
             try {
                 b.removeAtmosphereResource(this);
             } catch (Exception ex) {
@@ -751,7 +757,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
             }
         }
 
-        if(e.getResource() != null) {
+        if (e.getResource() != null) {
             config.framework().notifyDestroyed(e.getResource().uuid());
         }
     }
@@ -800,9 +806,9 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
                 asyncSupport.complete(this);
 
                 try {
-                    Meteor m = (Meteor) req.getAttribute(AtmosphereResourceImpl.METEOR);
-                    if (m != null) {
-                        m.destroy();
+                    Object o = req.getAttribute(AtmosphereResourceImpl.METEOR);
+                    if (o != null && Meteor.class.isAssignableFrom(o.getClass())) {
+                        Meteor.class.cast(o).destroy();
                     }
                 } catch (Exception ex) {
                     logger.trace("Meteor exception {}", ex);
@@ -812,15 +818,17 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
                 action.type(Action.TYPE.CANCELLED);
                 if (asyncSupport != null) asyncSupport.action(this);
                 // We must close the underlying WebSocket as well.
-                if (AtmosphereResponse.class.isAssignableFrom(response.getClass())) {
+                if (AtmosphereResponseImpl.class.isAssignableFrom(response.getClass())) {
                     if (closeOnCancel) {
-                        AtmosphereResponse.class.cast(response).close();
+                        AtmosphereResponseImpl.class.cast(response).close();
                     }
-                    AtmosphereResponse.class.cast(response).destroy();
+                    AtmosphereResponseImpl.class.cast(response).destroy();
                 }
 
-                if (AtmosphereRequest.class.isAssignableFrom(req.getClass())) {
-                    AtmosphereRequest.class.cast(req).destroy();
+                if (AtmosphereRequestImpl.class.isAssignableFrom(req.getClass())) {
+                    if (closeOnCancel) {
+                        AtmosphereRequestImpl.class.cast(req).destroy();
+                    }
                 }
                 event.destroy();
             }
@@ -839,6 +847,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
                 removeFromAllBroadcasters();
             }
             broadcasters.clear();
+
             unregister();
             removeEventListeners();
         } catch (Throwable t) {
@@ -859,7 +868,7 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
                     ",\n\t isResumed=" + isResumed() +
                     ",\n\t isCancelled=" + isCancelled() +
                     ",\n\t isSuspended=" + isSuspended() +
-                    ",\n\t broadcasters=" + broadcasters +
+                    ",\n\t broadcasters=" + getBroadcaster().getID() +
                     ",\n\t isClosedByClient=" + (event != null ? event.isClosedByClient() : false) +
                     ",\n\t isClosedByApplication=" + (event != null ? event.isClosedByApplication() : false) +
                     ",\n\t action=" + action +
@@ -1002,7 +1011,18 @@ public class AtmosphereResourceImpl implements AtmosphereResource {
         return uuid != null ? uuid.hashCode() : 0;
     }
 
-    public boolean getAndSetInClosingPhase(){
+    public boolean getAndSetInClosingPhase() {
         return inClosingPhase.getAndSet(true);
+    }
+
+    /**
+     * @return
+     */
+    public boolean isPendingClose () {
+        return isPendingClose.get();
+    }
+    
+    public boolean getAndSetPendingClose() {
+        return isPendingClose.getAndSet(true);
     }
 }

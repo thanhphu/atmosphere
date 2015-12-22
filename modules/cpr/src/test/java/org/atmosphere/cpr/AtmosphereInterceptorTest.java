@@ -16,6 +16,7 @@
 package org.atmosphere.cpr;
 
 import org.atmosphere.interceptor.InvokationOrder;
+import org.mockito.Mockito;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -24,9 +25,12 @@ import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import java.io.IOException;
 import java.util.Enumeration;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.mockito.Mockito.mock;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 public class AtmosphereInterceptorTest {
 
@@ -83,13 +87,15 @@ public class AtmosphereInterceptorTest {
                 AtmosphereResourceImpl.class.cast(r).action().type(Action.TYPE.CONTINUE);
                 return Action.CONTINUE;
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public void postInspect(AtmosphereResource r) {
             }
         });
 
-        assertEquals(Action.CONTINUE, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
+        assertEquals(Action.CONTINUE, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
     }
 
     @Test
@@ -99,7 +105,9 @@ public class AtmosphereInterceptorTest {
             @Override
             public void configure(AtmosphereConfig config) {
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public Action inspect(AtmosphereResource r) {
                 // Default is CREATED
@@ -112,12 +120,14 @@ public class AtmosphereInterceptorTest {
             }
         });
 
-        assertEquals(Action.CONTINUE, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
+        assertEquals(Action.CONTINUE, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
         framework.interceptor(new AtmosphereInterceptor() {
             @Override
             public void configure(AtmosphereConfig config) {
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public Action inspect(AtmosphereResource r) {
                 // Default is CREATED
@@ -129,7 +139,7 @@ public class AtmosphereInterceptorTest {
             public void postInspect(AtmosphereResource r) {
             }
         });
-        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
+        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
     }
 
     @Test
@@ -139,7 +149,9 @@ public class AtmosphereInterceptorTest {
             @Override
             public void configure(AtmosphereConfig config) {
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public Action inspect(AtmosphereResource r) {
                 return Action.CANCELLED;
@@ -150,7 +162,7 @@ public class AtmosphereInterceptorTest {
             }
         });
 
-        assertEquals(Action.CANCELLED, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
+        assertEquals(Action.CANCELLED, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
     }
 
     @Test
@@ -160,7 +172,9 @@ public class AtmosphereInterceptorTest {
             @Override
             public void configure(AtmosphereConfig config) {
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public Action inspect(AtmosphereResource r) {
                 return Action.CREATED;
@@ -171,7 +185,7 @@ public class AtmosphereInterceptorTest {
             }
         });
 
-        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
+        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
     }
 
     @Test
@@ -195,8 +209,69 @@ public class AtmosphereInterceptorTest {
             }
         });
 
-        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
-        assertEquals(framework.interceptors().getFirst().toString(), "XXX");
+        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
+        assertEquals(framework.getAtmosphereHandlers().get("/" + AtmosphereFramework.MAPPING_REGEX).interceptors.removeFirst().toString(), "CORS Interceptor Support");
+        assertEquals(framework.getAtmosphereHandlers().get("/" + AtmosphereFramework.MAPPING_REGEX).interceptors.getFirst().toString(), "XXX");
+
+    }
+
+    @Test
+    public void configureTest() throws ServletException, IOException {
+        final AtomicInteger count = new AtomicInteger();
+        framework = new AtmosphereFramework();
+        framework.setAsyncSupport(mock(AsyncSupport.class));
+        framework.interceptor(new AtmosphereInterceptor() {
+            @Override
+            public void configure(AtmosphereConfig config) {
+                count.incrementAndGet();
+            }
+
+            @Override
+            public Action inspect(AtmosphereResource r) {
+                return Action.CREATED;
+            }
+
+            @Override
+            public void destroy() {
+            }
+
+            @Override
+            public void postInspect(AtmosphereResource r) {
+            }
+        });
+
+        framework.init(new ServletConfig() {
+            @Override
+            public String getServletName() {
+                return "void";
+            }
+
+            @Override
+            public ServletContext getServletContext() {
+                return mock(ServletContext.class);
+            }
+
+            @Override
+            public String getInitParameter(String name) {
+                return null;
+            }
+
+            @Override
+            public Enumeration<String> getInitParameterNames() {
+                return null;
+            }
+        });
+        config = framework.getAtmosphereConfig();
+        processor = new AsynchronousProcessor(config) {
+            @Override
+            public Action service(AtmosphereRequest req, AtmosphereResponse res) throws IOException, ServletException {
+                return action(req, res);
+            }
+        };
+        framework.addAtmosphereHandler("/*", handler);
+
+        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
+        assertEquals(1, count.get());
 
     }
 
@@ -242,7 +317,41 @@ public class AtmosphereInterceptorTest {
         } catch (Exception ex) {
             exception = ex;
         }
-        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequest.class), AtmosphereResponse.newInstance()));
-        assertEquals(framework.interceptors().getFirst().toString(), "XXX");
+        assertEquals(Action.CREATED, processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance()));
+        assertEquals(framework.getAtmosphereHandlers().get("/" + AtmosphereFramework.MAPPING_REGEX).interceptors.removeFirst().toString(), "CORS Interceptor Support");
+        assertEquals(framework.getAtmosphereHandlers().get("/" + AtmosphereFramework.MAPPING_REGEX).interceptors.getFirst().toString(), "XXX");
+    }
+
+    @Test
+    public void postInspectOnThrown() throws Exception{
+        AtmosphereHandler handler = mock(AtmosphereHandler.class);
+        Mockito.doThrow(new RuntimeException()).when(handler).onRequest(Mockito.any(AtmosphereResource.class));
+        framework.addAtmosphereHandler("/*", handler);
+
+        final AtomicBoolean postInspected = new AtomicBoolean(false);
+        framework.interceptor(new AtmosphereInterceptor() {
+            @Override
+            public void configure(AtmosphereConfig config) {
+            }
+
+            @Override
+            public void destroy() {
+            }
+
+            @Override
+            public Action inspect(AtmosphereResource r) {
+                return Action.CONTINUE;
+            }
+
+            @Override
+            public void postInspect(AtmosphereResource r) {
+                postInspected.set(true);
+            }
+        });
+
+        try{
+            processor.service(mock(AtmosphereRequestImpl.class), AtmosphereResponseImpl.newInstance());
+        } catch(Throwable t){}
+        assertTrue(postInspected.get());
     }
 }

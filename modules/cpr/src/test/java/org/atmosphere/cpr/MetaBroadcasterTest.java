@@ -15,6 +15,7 @@
  */
 package org.atmosphere.cpr;
 
+import org.atmosphere.util.ExecutorsFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -30,14 +31,17 @@ public class MetaBroadcasterTest {
 
     @BeforeMethod
     public void setUp() throws Exception {
-        config = new AtmosphereFramework().init().getAtmosphereConfig();
+        AtmosphereFramework f = new AtmosphereFramework().addInitParameter(ApplicationConfig.WEBSOCKET_SUPPRESS_JSR356, "true");
+        config = f.init().getAtmosphereConfig();
         factory = config.getBroadcasterFactory();
         factory.remove(Broadcaster.ROOT_MASTER);
         metaBroadcaster = config.metaBroadcaster();
     }
 
     @AfterMethod
-    public void destroy() {
+    public void unSet() throws Exception {
+        config.destroy();
+        ExecutorsFactory.reset(config);
         factory.destroy();
     }
 

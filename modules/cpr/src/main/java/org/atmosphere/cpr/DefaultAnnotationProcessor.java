@@ -35,6 +35,7 @@ import org.atmosphere.config.service.EndpointMapperService;
 import org.atmosphere.config.service.ManagedService;
 import org.atmosphere.config.service.MeteorService;
 import org.atmosphere.config.service.UUIDProviderService;
+import org.atmosphere.config.service.WebSocketFactoryService;
 import org.atmosphere.config.service.WebSocketHandlerService;
 import org.atmosphere.config.service.WebSocketProcessorService;
 import org.atmosphere.config.service.WebSocketProtocolService;
@@ -54,6 +55,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.atmosphere.util.IOUtils.loadClass;
 
 /**
  * An {@link AnnotationProcessor} that selects between a ServletContextInitializer based scanner, and
@@ -79,6 +82,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             BroadcasterFactoryService.class,
             BroadcasterService.class,
             MeteorService.class,
+            WebSocketFactoryService.class,
             WebSocketHandlerService.class,
             WebSocketProtocolService.class,
             AtmosphereInterceptorService.class,
@@ -157,7 +161,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         List<String> packages = f.customAnnotationPackages();
         AnnotationDetector detector = new AnnotationDetector(atmosphereReporter);
         try {
-            if (packages.size() > 0) {
+            if (!packages.isEmpty()) {
                 for (String p : packages) {
                     logger.trace("Package {} scanned for @AtmosphereAnnotation", p);
                     detector.detect(p);
@@ -250,7 +254,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
          * of everything in the war. It would be nice to change to the API to make this a bit cleaner
          * but it looks like it is a public API.
          */
-        private boolean alreadyScanned = false;
+        private boolean alreadyScanned;
 
         private ServletContainerInitializerAnnotationProcessor(AnnotationHandler handler,
                                                                final Map<Class<? extends Annotation>, Set<Class<?>>> annotations,
@@ -281,7 +285,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             }
 
             if (handleAtmosphereAnnotation) {
-                scanForCustomAnnotation();
+                scanForCustomAnnotation(atmosphereAnnotatedClasses);
             }
             return this;
         }
@@ -304,7 +308,10 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             return scanForCustomizedAnnotation;
         }
 
-        private void scanForCustomAnnotation() throws IOException {
+        private void scanForCustomAnnotation(Set<Class<?>> atmosphereAnnotatedClasses) throws IOException {
+
+            handler.flushCoreAnnotations(atmosphereAnnotatedClasses);
+
             BytecodeBasedAnnotationProcessor b = new BytecodeBasedAnnotationProcessor(handler);
             b.configure(framework.getAtmosphereConfig());
             String path = framework.getServletContext().getRealPath(framework.getHandlersPath());
@@ -332,7 +339,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 }
 
                 if (handleAtmosphereAnnotation) {
-                    scanForCustomAnnotation();
+                    scanForCustomAnnotation(atmosphereAnnotatedClasses);
                 }
             }
 
@@ -408,11 +415,4 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         }
     }
 
-    private static Class<?> loadClass(Class thisClass, String className) throws Exception {
-        try {
-            return Thread.currentThread().getContextClassLoader().loadClass(className);
-        } catch (Throwable t) {
-            return thisClass.getClassLoader().loadClass(className);
-        }
-    }
 }

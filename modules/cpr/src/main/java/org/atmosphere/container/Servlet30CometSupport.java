@@ -20,8 +20,10 @@ import org.atmosphere.cpr.AsyncSupport;
 import org.atmosphere.cpr.AsynchronousProcessor;
 import org.atmosphere.cpr.AtmosphereConfig;
 import org.atmosphere.cpr.AtmosphereRequest;
+import org.atmosphere.cpr.AtmosphereRequestImpl;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
 import org.atmosphere.cpr.AtmosphereResponse;
+import org.atmosphere.cpr.AtmosphereResponseImpl;
 import org.atmosphere.cpr.FrameworkConfig;
 import org.atmosphere.util.Utils;
 import org.slf4j.Logger;
@@ -78,7 +80,7 @@ public class Servlet30CometSupport extends AsynchronousProcessor {
     }
 
     /**
-     * Suspend the connection by invoking {@link AtmosphereRequest#startAsync()}
+     * Suspend the connection by invoking {@link AtmosphereRequestImpl#startAsync()}
      *
      * @param action The {@link org.atmosphere.cpr.Action}
      * @param req    the {@link AtmosphereRequest}
@@ -119,17 +121,20 @@ public class Servlet30CometSupport extends AsynchronousProcessor {
     }
 
     public void endAsyncContext(AtmosphereRequest request){
-        AsyncContext asyncContext = (AsyncContext) request.getAttribute(FrameworkConfig.ASYNC_CONTEXT);
-        if (asyncContext != null) {
-            try {
-                asyncContext.complete();
-            } catch (IllegalStateException ex) {
-                // Already completed. Jetty throw an exception on shutdown with log
+        final Object attribute = request.getAttribute(FrameworkConfig.ASYNC_CONTEXT);
+        if (attribute instanceof AsyncContext) {
+            AsyncContext asyncContext = (AsyncContext) attribute;
+            if (asyncContext != null) {
                 try {
-                    logger.trace("Already resumed!", ex);
-                } catch (Exception ex2){};
-            } finally {
-                request.removeAttribute(FrameworkConfig.ASYNC_CONTEXT);
+                    asyncContext.complete();
+                } catch (IllegalStateException ex) {
+                    // Already completed. Jetty throw an exception on shutdown with log
+                    try {
+                        logger.trace("Already resumed!", ex);
+                    } catch (Exception ex2){};
+                } finally {
+                    request.removeAttribute(FrameworkConfig.ASYNC_CONTEXT);
+                }
             }
         }
     }

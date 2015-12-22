@@ -20,6 +20,7 @@ import org.atmosphere.cpr.AsyncIOWriter;
 import org.atmosphere.cpr.AtmosphereConfig;
 import org.atmosphere.cpr.AtmosphereInterceptorWriter;
 import org.atmosphere.cpr.AtmosphereRequest;
+import org.atmosphere.cpr.AtmosphereRequestImpl;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
 import org.atmosphere.cpr.AtmosphereResponse;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.atmosphere.cpr.HeaderConfig.X_ATMOSPHERE_ERROR;
@@ -51,15 +53,16 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
     public final static String CLEAN_CLOSE = "Clean_Close";
 
     private AtmosphereResource r;
-    protected long lastWrite = 0;
+    protected long lastWrite;
     protected boolean binaryWrite;
-    private final ByteArrayAsyncWriter buffer = new ByteArrayAsyncWriter();
     private final AtomicBoolean firstWrite = new AtomicBoolean(false);
     private final AtmosphereConfig config;
     private WebSocketHandler webSocketHandler;
     protected ByteBuffer bb = ByteBuffer.allocate(8192);
     protected CharBuffer cb = CharBuffer.allocate(8192);
     protected String uuid = "NUll";
+    private Map<String, Object> attributesAtWebSocketOpen;
+    private Object attachment;
 
     public WebSocket(AtmosphereConfig config) {
         String s = config.getInitParameter(ApplicationConfig.WEBSOCKET_BINARY_WRITE);
@@ -82,6 +85,7 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
 
     /**
      * Switch to binary write, or go back to text write. Default is false.
+     *
      * @param binaryWrite true to switch to binary write.
      * @return
      */
@@ -90,7 +94,7 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
         return this;
     }
 
-    protected WebSocketHandler webSocketHandler() {
+    public WebSocketHandler webSocketHandler() {
         return webSocketHandler;
     }
 
@@ -110,6 +114,25 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
         this.r = r;
         if (r != null) uuid = r.uuid();
         return this;
+    }
+
+    /**
+     * Copy {@link AtmosphereRequestImpl#localAttributes()} that where set when the websocket was opened.
+     *
+     * @return this.
+     */
+    public WebSocket shiftAttributes() {
+        attributesAtWebSocketOpen = AtmosphereResourceImpl.class.cast(r).getRequest(false).localAttributes().unmodifiableMap();
+        return this;
+    }
+
+    /**
+     * Return the attribute that was set during the websocket's open operation.
+     *
+     * @return
+     */
+    public Map<String, Object> attributes() {
+        return attributesAtWebSocketOpen;
     }
 
     /**
@@ -137,6 +160,10 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
 
     protected byte[] transform(AtmosphereResponse response, byte[] b, int offset, int length) throws IOException {
         AsyncIOWriter a = response.getAsyncIOWriter();
+        // NOTE #1961 for now, create a new buffer par transform call and release it after the transform call.
+        //      Alternatively, we may cache the buffer in thread-local and use it while this thread invokes
+        //      multiple writes and release it when this thread invokes the close method.
+        ByteArrayAsyncWriter buffer = new ByteArrayAsyncWriter();
         try {
             response.asyncIOWriter(buffer);
             invokeInterceptor(response, b, offset, length);
@@ -158,7 +185,7 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
         if (!isOpen()) throw new IOException("Connection remotely closed for " + uuid);
         logger.trace("WebSocket.write() {}", data);
 
-        boolean transform = filters.size() > 0 && r.getStatus() < 400;
+        boolean transform = !filters.isEmpty() && r.getStatus() < 400;
         if (binaryWrite) {
             byte[] b = data.getBytes(resource().getResponse().getCharacterEncoding());
             if (transform) {
@@ -204,7 +231,7 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
             logger.trace("WebSocket.write() {}", new String(b, offset, length, "UTF-8"));
         }
 
-        boolean transform = filters.size() > 0 && r.getStatus() < 400;
+        boolean transform = !filters.isEmpty() && r.getStatus() < 400;
         if (binaryWrite || resource().forceBinaryWrite()) {
             if (transform) {
                 b = transform(r, b, offset, length);
@@ -283,7 +310,7 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
         try {
             bb.clear();
             cb.clear();
-            buffer.close(r);
+            // NOTE #1961 if the buffer is cached at thread-local, it needs to be released here.
         } catch (Exception ex) {
             logger.trace("", ex);
         }
@@ -322,11 +349,22 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
     abstract public WebSocket write(byte[] b, int offset, int length) throws IOException;
 
     /**
+     * Use the underlying container's websocket to write the byte.
+     *
+     * @param b      a websocket byte message
+     * @return this
+     * @throws IOException
+     */
+    public WebSocket write(byte[] b) throws IOException {
+        return write(b, 0, b.length);
+    }
+
+    /**
      * Close the underlying WebSocket
      */
     abstract public void close();
 
-    protected String uuid() {
+    public String uuid() {
         return uuid;
     }
 
@@ -334,5 +372,42 @@ public abstract class WebSocket extends AtmosphereInterceptorWriter implements K
         response.addHeader(X_ATMOSPHERE_ERROR, WebSocket.NOT_SUPPORTED);
         response.sendError(501, WebSocket.NOT_SUPPORTED);
         logger.trace("{} for request {}", WebSocket.NOT_SUPPORTED, request);
+    }
+
+    /**
+     * Send a WebSocket Ping
+     *
+     * @param payload the bytes to send
+     * @return this
+     */
+    public WebSocket sendPing(byte[] payload) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Send a WebSocket Pong
+     *
+     * @param payload the bytes to send
+     * @return this
+     */
+    public WebSocket sendPong(byte[] payload) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Attach an object. Be careful when attaching an object as it can cause memory leak
+     *
+     * @oaram object
+     */
+    public WebSocket attachment(Object attachment) {
+        this.attachment = attachment;
+        return this;
+    }
+
+    /**
+     * Return the attachment
+     */
+    public Object attachment() {
+        return attachment;
     }
 }

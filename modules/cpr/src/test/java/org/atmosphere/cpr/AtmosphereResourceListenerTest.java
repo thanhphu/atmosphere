@@ -73,7 +73,7 @@ public class AtmosphereResourceListenerTest {
             }
         });
 
-        AtmosphereRequest request = new AtmosphereRequest.Builder().pathInfo("/a").build();
+        AtmosphereRequest request = new AtmosphereRequestImpl.Builder().pathInfo("/a").build();
 
         final AtomicReference<Boolean> suspended = new AtomicReference<Boolean>();
         final AtomicReference<Boolean> resumed = new AtomicReference<Boolean>();
@@ -125,7 +125,9 @@ public class AtmosphereResourceListenerTest {
             @Override
             public void configure(AtmosphereConfig config) {
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public Action inspect(AtmosphereResource r) {
                 r.addEventListener(listener).suspend();
@@ -142,7 +144,7 @@ public class AtmosphereResourceListenerTest {
                 r.resume();
             }
         });
-        framework.doCometSupport(request, AtmosphereResponse.newInstance());
+        framework.doCometSupport(request, AtmosphereResponseImpl.newInstance());
 
 
         assertTrue(preSuspended.get());
@@ -163,7 +165,7 @@ public class AtmosphereResourceListenerTest {
             }
         });
 
-        AtmosphereRequest request = new AtmosphereRequest.Builder().pathInfo("/a").build();
+        AtmosphereRequest request = new AtmosphereRequestImpl.Builder().pathInfo("/a").build();
 
         final AtomicReference<Boolean> closed = new AtomicReference<Boolean>();
 
@@ -178,7 +180,9 @@ public class AtmosphereResourceListenerTest {
             @Override
             public void configure(AtmosphereConfig config) {
             }
-
+            @Override
+            public void destroy() {
+            }
             @Override
             public Action inspect(AtmosphereResource r) {
                 r.addEventListener(listener).suspend();
@@ -199,7 +203,7 @@ public class AtmosphereResourceListenerTest {
                 }
             }
         });
-        framework.doCometSupport(request, AtmosphereResponse.newInstance());
+        framework.doCometSupport(request, AtmosphereResponseImpl.newInstance());
         assertTrue(closed.get());
     }
 }

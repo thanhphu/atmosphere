@@ -16,7 +16,7 @@
 package org.atmosphere.cpr;
 
 import org.atmosphere.cpr.AtmosphereFramework.AtmosphereHandlerWrapper;
-import org.atmosphere.cpr.AtmosphereRequest.NoOpsRequest;
+import org.atmosphere.inject.InjectIntrospector;
 import org.atmosphere.interceptor.JavaScriptProtocol;
 import org.atmosphere.websocket.WebSocketProcessor;
 
@@ -67,7 +67,7 @@ public interface FrameworkConfig {
      */
     String JERSEY_CONTAINER = "com.sun.jersey.spi.container.servlet.ServletContainer";
     /**
-     * A request attribute used to lookup the {@link AtmosphereNativeCometServlet}. This attribute is for framework integrators and not recommend for normal applications.
+     * A request attribute used to lookup the {@link AtmosphereServlet}. This attribute is for framework integrators and not recommend for normal applications.
      */
     String ATMOSPHERE_SERVLET = "org.atmosphere.cpr.AtmosphereServlet";
     /**
@@ -111,6 +111,10 @@ public interface FrameworkConfig {
      */
     String SIMPLE_HTTP_OVER_WEBSOCKET = "polling-websocket-message";
     /**
+     * The {@link org.atmosphere.websocket.protocol.StreamingHttpProtocol}.
+     */
+    String STREAMING_HTTP_OVER_WEBSOCKET = "streaming-websocket-message";
+    /**
      * Cancel suspending a connection.
      */
     String CANCEL_SUSPEND_OPERATION = "doNotSuspend";
@@ -141,11 +145,11 @@ public interface FrameworkConfig {
     /**
      * Throw Exception from cloned request.
      */
-    String THROW_EXCEPTION_ON_CLONED_REQUEST = NoOpsRequest.class.getName() + ".throwExceptionOnClonedRequest";
+    String THROW_EXCEPTION_ON_CLONED_REQUEST = AtmosphereRequestImpl.NoOpsRequest.class.getName() + ".throwExceptionOnClonedRequest";
     /**
      * The subject for the current request.
      */
-    String SECURITY_SUBJECT = AtmosphereRequest.class.getName() + ".subject";
+    String SECURITY_SUBJECT = AtmosphereRequestImpl.class.getName() + ".subject";
     /**
      * The {@link javax.servlet.AsyncContext}.
      */
@@ -183,4 +187,8 @@ public interface FrameworkConfig {
      * The current installed {@link org.atmosphere.cpr.BroadcasterFactory}
      */
     String BROADCASTER_FACTORY = BroadcasterFactory.class.getName();
+    /**
+     * Need runtime injection
+     */
+    String NEED_RUNTIME_INJECTION = InjectIntrospector.WHEN.DEPLOY.getClass().getName();
 }

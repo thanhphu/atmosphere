@@ -470,6 +470,14 @@ public interface ApplicationConfig {
      */
     String WEBSOCKET_PROTOCOL_EXECUTION = "org.atmosphere.websocket.WebSocketProtocol.executeAsync";
     /**
+     * Suppress the detection of JSR356 support. In Atmosphere 2.4.0 and newer, JSR356 has the
+     * precedence over container specific providers. This option can be used to suppress this ordering.    
+     * <p/>
+     * Default: false<br>
+     * Value: org.atmosphere.websocket.suppressJSR356
+     */
+    String WEBSOCKET_SUPPRESS_JSR356 = "org.atmosphere.websocket.suppressJSR356";
+    /**
      * The default content-type value used when Atmosphere requires one.
      * <p/>
      * Default: "text/plain"<br>
@@ -820,7 +828,7 @@ public interface ApplicationConfig {
      * Default: true (enabled) <br>
      * Value: org.atmosphere.cpr.AtmosphereFramework.analytics
      */
-    String ANALYTICS = "org.atmosphere.cpr.AtmosphereFramework.analytics.analytics";
+    String ANALYTICS = "org.atmosphere.cpr.AtmosphereFramework.analytics";
     /**
      * For use of (@link BytecodeBasedAnnotationProcessor}
      * Default: false
@@ -894,11 +902,52 @@ public interface ApplicationConfig {
      */
     String META_SERVICE_PATH = "org.atmosphere.cpr.metaServicePath";
     /**
-     * Close the {@link org.atmosphere.cpr.AtmosphereResponse#getOutputStream()} when {@link org.atmosphere.cpr.AtmosphereResource#close()}
+     * Close the {@link AtmosphereResponseImpl#getOutputStream()} when {@link org.atmosphere.cpr.AtmosphereResource#close()}
      * gets invoked, or when the underlying server close the connection.
      * Default: false
      * Value: org.atmosphere.cpr.AsynchronousProcessor.closeOnCancel
      */
-    java.lang.String CLOSE_STREAM_ON_CANCEL = "org.atmosphere.cpr.AsynchronousProcessor.closeOnCancel";
+    String CLOSE_STREAM_ON_CANCEL = "org.atmosphere.cpr.AsynchronousProcessor.closeOnCancel";
+    /**
+     * Use init parameters specified for servlet context in addition to servlet config
+     * Default: false
+     * Value: org.atmosphere.cpr.AtmosphereConfig.getInitParameter
+     */
+    String USE_SERVLET_CONTEXT_PARAMETERS = "org.atmosphere.cpr.AtmosphereConfig.getInitParameter";
+    /**
+     * Use {@link ForkJoinPool} for dispatching messages and executing async I/O) operation
+     * Default: true
+     * Value: org.atmosphere.useForkJoinPool
+     */
+    String USE_FORJOINPOOL = "org.atmosphere.useForkJoinPool";
+    /**
+     * Writes the given data to the given outputstream in two steps with extra flushes to make servers notice if the connection has been closed.
+     * This  enables caching the message instead of losing it, if the client is in the progress of reconnecting via a Proxy where
+     * the server fails to detect the connection has been closed.
+     * <p/>
+     * This value only apply to LONG-POLLING transport
+     * <p/>
+     * Default: false
+     * Value: org.atmosphere.cpr.AbstractReflectorAtmosphereHandler.twoStepsWrite
+     */
+    String TWO_STEPS_WRITE = "org.atmosphere.cpr.AbstractReflectorAtmosphereHandler.twoStepsWrite";
+    /**
+     * How many times the {@link org.atmosphere.inject.InjectableObjectFactory} will try to construct and inject an object
+     * from an {@link org.atmosphere.inject.Injectable}. This happens when an Injectable returns null instead of the
+     * expected Injection
+     * <p/>
+     * Default: 5
+     * Value: org.atmosphere.cpr.InjectableObjectFactory.maxTry
+     */
+    String INJECTION_TRY = "org.atmosphere.cpr.InjectableObjectFactory.maxTry";
+    /**
+     * {@link org.atmosphere.inject.InjectableObjectFactory} listeners.
+     * <p/>
+     * Listeners MUST be Thread-Safe to use that feature.
+     * <p/>
+     * Default: null <br>
+     * Value: org.atmosphere.inject.InjectableObjectFactory.listeners
+     */
+    String INJECTION_LISTENERS = "org.atmosphere.inject.InjectableObjectFactory.listeners";
 }
 

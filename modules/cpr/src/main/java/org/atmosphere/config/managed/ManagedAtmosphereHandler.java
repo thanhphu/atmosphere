@@ -32,6 +32,7 @@ import org.atmosphere.cpr.AtmosphereHandler;
 import org.atmosphere.cpr.AtmosphereRequest;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceEvent;
+import org.atmosphere.cpr.AtmosphereResourceFactory;
 import org.atmosphere.cpr.AtmosphereResourceHeartbeatEventListener;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
 import org.atmosphere.handler.AbstractReflectorAtmosphereHandler;
@@ -69,11 +70,11 @@ import static org.atmosphere.util.IOUtils.readEntirely;
 public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
         implements AnnotatedProxy, AtmosphereResourceHeartbeatEventListener {
 
-    private static IllegalArgumentException IAE = null;
+    private static IllegalArgumentException IAE;
     private Logger logger = LoggerFactory.getLogger(ManagedAtmosphereHandler.class);
     private final static List<Decoder<?, ?>> EMPTY = Collections.<Decoder<?, ?>>emptyList();
     private Object proxiedInstance;
-    private List<MethodInfo> onRuntimeMethod;
+    protected List<MethodInfo> onRuntimeMethod;
     private Method onHeartbeatMethod;
     private Method onDisconnectMethod;
     private Method onTimeoutMethod;
@@ -84,7 +85,8 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
     private Method onReadyMethod;
     private Method onResumeMethod;
     private AtmosphereConfig config;
-    private boolean pathParams = false;
+    protected boolean pathParams;
+    protected AtmosphereResourceFactory resourcesFactory;
 
     final Map<Method, List<Encoder<?, ?>>> encoders = new HashMap<Method, List<Encoder<?, ?>>>();
     final Map<Method, List<Decoder<?, ?>>> decoders = new HashMap<Method, List<Decoder<?, ?>>>();
@@ -107,6 +109,7 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
         this.onResumeMethod = populate(c, Resume.class);
         this.config = config;
         this.pathParams = pathParams(c);
+        this.resourcesFactory = config.resourcesFactory();
 
         scanForReaderOrInputStream();
 
@@ -122,8 +125,8 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
         boolean polling = Utils.pollableTransport(resource.transport());
         boolean webSocketMessage = Utils.webSocketMessage(resource);
 
-        if (!webSocketMessage) {
-            if (onReadyMethod != null && !polling) {
+        if (!webSocketMessage && !polling) {
+            if (onReadyMethod != null ) {
                 resource.addEventListener(new OnSuspend() {
                     @Override
                     public void onSuspend(AtmosphereResourceEvent event) {
@@ -133,7 +136,7 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
                 });
             }
 
-            if (onResumeMethod != null && !polling) {
+            if (onResumeMethod != null) {
                 resource.addEventListener(new OnResume() {
                     @Override
                     public void onResume(AtmosphereResourceEvent event) {
@@ -167,7 +170,11 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
 
             MethodInfo.EncoderObject e = message(resource, body);
             if (e != null && e.encodedObject != null) {
-                IOUtils.deliver(new Managed(e.encodedObject), null, e.methodInfo.deliverTo, resource);
+                AtmosphereResource r = resource;
+                if ( e.methodInfo.deliverTo == DeliverTo.DELIVER_TO.RESOURCE && !resource.transport().equals(AtmosphereResource.TRANSPORT.WEBSOCKET)) {
+                    r = resourcesFactory.find(resource.uuid());
+                }
+                IOUtils.deliver(new Managed(e.encodedObject), null, e.methodInfo.deliverTo, r);
             }
         } else if (method.equalsIgnoreCase("delete")) {
             invoke(onDeleteMethod, resource);
@@ -208,15 +215,17 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
                 if (Managed.class.isAssignableFrom(msg.getClass())) {
                     Object newMsg = Managed.class.cast(msg).o;
                     event.setMessage(newMsg);
-                    // No method matched. Give a last chance by trying to decode the proxiedInstance.
+                    // encoding might be needed again since BroadcasterFilter might have modified message body
                     // This makes application development more simpler.
                     // Chaining of encoder is not supported.
                     // TODO: This could be problematic with String + method
-                    for (MethodInfo m : onRuntimeMethod) {
-                        o = Invoker.encode(encoders.get(m.method), newMsg);
-                        if (o != null) {
-                            event.setMessage(o);
-                            break;
+                    if (r.getBroadcaster().getBroadcasterConfig().hasFilters()) {
+                        for (MethodInfo m : onRuntimeMethod) {
+                            o = Invoker.encode(encoders.get(m.method), newMsg);
+                            if (o != null) {
+                                event.setMessage(o);
+                                break;
+                            }
                         }
                     }
                 } else {
@@ -250,7 +259,7 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
         return false;
     }
 
-    private Method populate(Object c, Class<? extends Annotation> annotation) {
+    protected Method populate(Object c, Class<? extends Annotation> annotation) {
         for (Method m : c.getClass().getMethods()) {
             if (m.isAnnotationPresent(annotation)) {
                 return m;
@@ -259,7 +268,7 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
         return null;
     }
 
-    private List<MethodInfo> populateMessage(Object c, Class<? extends Annotation> annotation) {
+    protected List<MethodInfo> populateMessage(Object c, Class<? extends Annotation> annotation) {
         ArrayList<MethodInfo> methods = new ArrayList<MethodInfo>();
         for (Method m : c.getClass().getMethods()) {
             if (m.isAnnotationPresent(annotation)) {
@@ -329,16 +338,6 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
     private MethodInfo.EncoderObject message(AtmosphereResource resource, Object o) {
         AtmosphereRequest request = AtmosphereResourceImpl.class.cast(resource).getRequest(false);
         try {
-
-            Method invokedMethod = (Method) request.localAttributes().remove(getClass().getName());
-            if (invokedMethod != null) {
-                for (MethodInfo m : onRuntimeMethod) {
-                    if (invokedMethod.equals(m.method)) {
-                        return m.encode(encoders, o);
-                    }
-                }
-            }
-
             for (MethodInfo m : onRuntimeMethod) {
                 if (m.useReader) {
                     o = request.getReader();
@@ -362,15 +361,10 @@ public class ManagedAtmosphereHandler extends AbstractReflectorAtmosphereHandler
                     logger.warn("Injection of more than 2 parameters not supported {}", m);
                 }
 
-                if (invokedMethod == null) {
-                    if (m.method.getParameterTypes().length == 2) {
-                        request.localAttributes().put(getClass().getName(), m.method);
-                        objectToEncode = Invoker.invokeMethod(m.method, proxiedInstance, resource, decoded);
-                    } else {
-                        objectToEncode = Invoker.invokeMethod(m.method, proxiedInstance, decoded);
-                    }
+                if (m.method.getParameterTypes().length == 2) {
+                    objectToEncode = Invoker.invokeMethod(m.method, proxiedInstance, resource, decoded);
                 } else {
-                    objectToEncode = o;
+                    objectToEncode = Invoker.invokeMethod(m.method, proxiedInstance, decoded);
                 }
 
                 if (objectToEncode != null) {

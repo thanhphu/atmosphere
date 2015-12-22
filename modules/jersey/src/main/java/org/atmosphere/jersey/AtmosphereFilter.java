@@ -893,7 +893,7 @@ public class AtmosphereFilter implements ResourceFilterFactory {
                         scope,
                         null,
                         null,
-                        true,
+                        am.getAnnotation(Suspend.class).writeEntity(),
                         am.getAnnotation(Suspend.class).contentType());
             } else {
                 f = new Filter(Action.SUSPEND,
@@ -902,7 +902,7 @@ public class AtmosphereFilter implements ResourceFilterFactory {
                         scope,
                         null,
                         null,
-                        true,
+                        am.getAnnotation(Suspend.class).writeEntity(),
                         am.getAnnotation(Suspend.class).contentType());
             }
             f.setListeners(am.getAnnotation(Suspend.class).listeners());
@@ -943,7 +943,7 @@ public class AtmosphereFilter implements ResourceFilterFactory {
             }
         }
 
-        if (list.size() == 0) {
+        if (!list.isEmpty()) {
             f = new Filter(Action.NONE);
             list.addFirst(f);
         }

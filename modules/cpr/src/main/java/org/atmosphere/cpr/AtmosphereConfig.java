@@ -17,6 +17,7 @@ package org.atmosphere.cpr;
 
 import org.atmosphere.config.AtmosphereHandlerConfig;
 import org.atmosphere.util.UUIDProvider;
+import org.atmosphere.websocket.WebSocketFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,9 +25,9 @@ import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
 import java.util.ArrayList;
 import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class contains information about the current state of the {@link AtmosphereFramework}. You can also
@@ -45,11 +46,11 @@ public class AtmosphereConfig {
     private boolean sessionTimeoutRemovalAllowed;
     private boolean throwExceptionOnCloned;
     private AtmosphereFramework framework;
-    private Map<String, Object> properties = new HashMap<String, Object>();
+    private final Map<String, Object> properties = new ConcurrentHashMap<String, Object>();
     protected List<ShutdownHook> shutdownHooks = new ArrayList<ShutdownHook>();
     protected List<StartupHook> startUpHook = new ArrayList<StartupHook>();
 
-    public AtmosphereConfig(AtmosphereFramework framework) {
+    protected AtmosphereConfig(AtmosphereFramework framework) {
         this.framework = framework;
     }
 
@@ -106,7 +107,7 @@ public class AtmosphereConfig {
      * Return the value of the init params defined in web.xml or application.xml.
      *
      * @param name the name
-     * @return the list of init params defined in web.xml or application.xml
+     * @return the value for the init parameter if defined
      */
     public String getInitParameter(String name) {
         try {
@@ -120,7 +121,7 @@ public class AtmosphereConfig {
     /**
      * Return all init param.
      *
-     * @return
+     * @return the list of init params defined in web.xml or application.xml for the servlet
      */
     public Enumeration<String> getInitParameterNames() {
         return framework().getServletConfig().getInitParameterNames();
@@ -241,13 +242,18 @@ public class AtmosphereConfig {
     }
 
     /**
-     * Add a {@link StartupHook}.
+     * Add a {@link StartupHook}. If the {@link AtmosphereFramework#isInit} return true, the
+     * StartupHook will be executed immediately.
      *
      * @param s a {@link StartupHook}
      * @return this
      */
     public AtmosphereConfig startupHook(StartupHook s) {
-        startUpHook.add(s);
+        if (framework().isInit) {
+            s.started(framework);
+        } else {
+            startUpHook.add(s);
+        }
         return this;
     }
 
@@ -333,6 +339,15 @@ public class AtmosphereConfig {
     }
 
     /**
+     * Return the {@link WebSocketFactory}
+     *
+     * @return the {@link WebSocketFactory}
+     */
+    public WebSocketFactory websocketFactory() {
+        return framework.webSocketFactory();
+    }
+
+    /**
      * A shutdown hook that will be called when the {@link AtmosphereFramework#destroy} method gets invoked. An
      * Application can register one of more hooks.
      */
@@ -357,7 +372,7 @@ public class AtmosphereConfig {
         sessionTimeoutRemovalAllowed = config.sessionTimeoutRemovalAllowed;
         throwExceptionOnCloned = config.throwExceptionOnCloned;
         framework = config.framework;
-        properties = config.properties;
+        properties.putAll(config.properties);
         shutdownHooks = config.shutdownHooks;
         startUpHook = config.startUpHook;
         return this;

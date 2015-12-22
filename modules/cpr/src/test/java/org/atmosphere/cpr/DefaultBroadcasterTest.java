@@ -50,7 +50,6 @@ public class DefaultBroadcasterTest {
         }
 
         protected void cacheAndSuspend(AtmosphereResource r) {
-            System.out.println("========> cacheAndSuspend");
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
@@ -96,8 +95,8 @@ public class DefaultBroadcasterTest {
 
         final AtmosphereResourceImpl ar = new AtmosphereResourceImpl(new AtmosphereFramework().getAtmosphereConfig(),
                 broadcaster,
-                mock(AtmosphereRequest.class),
-                AtmosphereResponse.newInstance(),
+                mock(AtmosphereRequestImpl.class),
+                AtmosphereResponseImpl.newInstance(),
                 mock(BlockingIOCometSupport.class),
                 new AR());
 

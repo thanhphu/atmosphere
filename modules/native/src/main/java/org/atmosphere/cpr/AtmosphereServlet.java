@@ -44,6 +44,7 @@ import static org.atmosphere.cpr.HeaderConfig.WEBSOCKET_UPGRADE;
  */
 public class AtmosphereServlet extends HttpServlet implements CometProcessor, HttpEventServlet, org.apache.catalina.comet.CometProcessor {
 
+    private static final long serialVersionUID = 7526472295622776147L;
     protected static final Logger logger = LoggerFactory.getLogger(AtmosphereServlet.class);
     protected final AtmosphereFrameworkInitializer initializer;
 
@@ -196,7 +197,7 @@ public class AtmosphereServlet extends HttpServlet implements CometProcessor, Ht
     @Override
     public void doPost(HttpServletRequest req, HttpServletResponse res)
             throws IOException, ServletException {
-        initializer.framework().doCometSupport(AtmosphereRequest.wrap(req), AtmosphereResponse.wrap(res));
+        initializer.framework().doCometSupport(AtmosphereRequestImpl.wrap(req), AtmosphereResponseImpl.wrap(res));
     }
 
     /**
@@ -229,7 +230,7 @@ public class AtmosphereServlet extends HttpServlet implements CometProcessor, Ht
             }
         }
 
-        initializer.framework().doCometSupport(AtmosphereRequest.wrap(req), AtmosphereResponse.wrap(res));
+        initializer.framework().doCometSupport(AtmosphereRequestImpl.wrap(req), AtmosphereResponseImpl.wrap(res));
 
         String transport = cometEvent.getHttpServletRequest().getParameter(HeaderConfig.X_ATMOSPHERE_TRANSPORT);
         if (transport != null && transport.equalsIgnoreCase(HeaderConfig.WEBSOCKET_TRANSPORT)) {
@@ -261,7 +262,7 @@ public class AtmosphereServlet extends HttpServlet implements CometProcessor, Ht
             }
         }
 
-        initializer.framework().doCometSupport(AtmosphereRequest.wrap(req), AtmosphereResponse.wrap(res));
+        initializer.framework().doCometSupport(AtmosphereRequestImpl.wrap(req), AtmosphereResponseImpl.wrap(res));
 
         // https://github.com/Atmosphere/atmosphere/issues/920
         String transport = cometEvent.getHttpServletRequest().getParameter(HeaderConfig.X_ATMOSPHERE_TRANSPORT);
@@ -319,11 +320,11 @@ public class AtmosphereServlet extends HttpServlet implements CometProcessor, Ht
 
         boolean isWebSocket = req.getHeader("Upgrade") == null ? false : true;
         if (isWebSocket && initializer.framework().asyncSupport.getClass().equals(JBossAsyncSupportWithWebSocket.class)) {
-        	logger.trace("Dispatching websocket event: " + httpEvent);
+            logger.trace("Dispatching websocket event: " + httpEvent);
             ((JBossAsyncSupportWithWebSocket) initializer.framework().asyncSupport).dispatch(httpEvent);
         } else {
             logger.trace("Dispatching comet event: " + httpEvent);
-            initializer.framework().doCometSupport(AtmosphereRequest.wrap(req), AtmosphereResponse.wrap(res));
+            initializer.framework().doCometSupport(AtmosphereRequestImpl.wrap(req), AtmosphereResponseImpl.wrap(res));
         }
     }
 

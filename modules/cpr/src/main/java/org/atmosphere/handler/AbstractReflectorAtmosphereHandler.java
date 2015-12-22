@@ -25,6 +25,7 @@ import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceEvent;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
 import org.atmosphere.cpr.AtmosphereResponse;
+import org.atmosphere.cpr.AtmosphereResponseImpl;
 import org.atmosphere.cpr.AtmosphereServletProcessor;
 import org.atmosphere.cpr.Broadcaster;
 import org.atmosphere.util.IOUtils;
@@ -32,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.servlet.ServletException;
+import javax.servlet.ServletOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -42,8 +44,8 @@ import static org.atmosphere.cpr.ApplicationConfig.PROPERTY_USE_STREAM;
 /**
  * Simple {@link AtmosphereHandler} that reflect every call to
  * {@link Broadcaster#broadcast}, eg sent the broadcasted event back to the remote client. All broadcasts will be by default returned
- * as it is to the suspended {@link org.atmosphere.cpr.AtmosphereResponse#getOutputStream}
- * or {@link org.atmosphere.cpr.AtmosphereResponse#getWriter()}.
+ * as it is to the suspended {@link AtmosphereResponseImpl#getOutputStream}
+ * or {@link AtmosphereResponseImpl#getWriter()}.
  *
  * @author Jean-francois Arcand
  */
@@ -51,13 +53,15 @@ public abstract class AbstractReflectorAtmosphereHandler implements AtmosphereSe
 
     private static final Logger logger = LoggerFactory.getLogger(AbstractReflectorAtmosphereHandler.class);
 
+    private boolean twoStepsWrite;
+
     /**
      * Write the {@link AtmosphereResourceEvent#getMessage()} back to the client using
-     * the {@link org.atmosphere.cpr.AtmosphereResponse#getOutputStream()} or {@link org.atmosphere.cpr.AtmosphereResponse#getWriter()}.
+     * the {@link AtmosphereResponseImpl#getOutputStream()} or {@link AtmosphereResponseImpl#getWriter()}.
      * If a {@link org.atmosphere.cpr.Serializer} is defined, it will be invoked and the write operation
      * will be delegated to it.
      * <p/>
-     * By default, this method will try to use {@link org.atmosphere.cpr.AtmosphereResponse#getWriter()}.
+     * By default, this method will try to use {@link AtmosphereResponseImpl#getWriter()}.
      *
      * @param event the {@link AtmosphereResourceEvent#getMessage()}
      * @throws java.io.IOException
@@ -159,6 +163,36 @@ public abstract class AbstractReflectorAtmosphereHandler implements AtmosphereSe
         postStateChange(event);
     }
 
+    protected void write(AtmosphereResourceEvent event, ServletOutputStream o, byte[] data) throws IOException {
+        if (useTwoStepWrite(event) && data.length > 1) {
+            twoStepWrite(o, data);
+        } else {
+            o.write(data);
+            o.flush();
+        }
+    }
+
+    /**
+     * Writes the given data to the given outputstream in two steps with extra
+     * flushes to make servers notice if the connection has been closed. This
+     * enables caching the message instead of losing it, if the client is in the
+     * progress of reconnecting
+     *
+     * @param o the stream to write to
+     * @param data the data to write
+     * @throws IOException if an exception occurs during writing
+     */
+    private void twoStepWrite(ServletOutputStream o, byte[] data) throws IOException {
+        o.write(data, 0, 1);
+        o.flush();
+        o.write(data, 1, data.length - 1);
+        o.flush();
+    }
+
+    protected boolean useTwoStepWrite(AtmosphereResourceEvent event) {
+        return twoStepsWrite && event.getResource().transport() == AtmosphereResource.TRANSPORT.LONG_POLLING;
+    }
+
     /**
      * Inspect the event and decide if the underlying connection must be resumed.
      *
@@ -193,6 +227,7 @@ public abstract class AbstractReflectorAtmosphereHandler implements AtmosphereSe
 
     @Override
     public void init(AtmosphereConfig config) throws ServletException {
+        twoStepsWrite = config.getInitParameter(ApplicationConfig.TWO_STEPS_WRITE, false);
     }
 
     /**

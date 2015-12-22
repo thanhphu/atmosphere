@@ -49,14 +49,17 @@ import org.atmosphere.util.ExecutorsFactory;
 import org.atmosphere.util.IOUtils;
 import org.atmosphere.util.IntrospectionUtils;
 import org.atmosphere.util.ServletContextFactory;
-import org.atmosphere.util.ServletProxyFactory;
 import org.atmosphere.util.UUIDProvider;
+import org.atmosphere.util.Utils;
 import org.atmosphere.util.Version;
+import org.atmosphere.util.VoidServletConfig;
 import org.atmosphere.util.analytics.FocusPoint;
 import org.atmosphere.util.analytics.JGoogleAnalyticsTracker;
 import org.atmosphere.util.analytics.ModuleDetection;
+import org.atmosphere.websocket.DefaultWebSocketFactory;
 import org.atmosphere.websocket.DefaultWebSocketProcessor;
 import org.atmosphere.websocket.WebSocket;
+import org.atmosphere.websocket.WebSocketFactory;
 import org.atmosphere.websocket.WebSocketHandler;
 import org.atmosphere.websocket.WebSocketProcessor;
 import org.atmosphere.websocket.WebSocketProtocol;
@@ -75,9 +78,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -125,6 +125,7 @@ import static org.atmosphere.cpr.ApplicationConfig.PROPERTY_SESSION_SUPPORT;
 import static org.atmosphere.cpr.ApplicationConfig.PROPERTY_THROW_EXCEPTION_ON_CLONED_REQUEST;
 import static org.atmosphere.cpr.ApplicationConfig.PROPERTY_USE_STREAM;
 import static org.atmosphere.cpr.ApplicationConfig.SUSPENDED_ATMOSPHERE_RESOURCE_UUID;
+import static org.atmosphere.cpr.ApplicationConfig.USE_SERVLET_CONTEXT_PARAMETERS;
 import static org.atmosphere.cpr.ApplicationConfig.WEBSOCKET_PROCESSOR;
 import static org.atmosphere.cpr.ApplicationConfig.WEBSOCKET_PROTOCOL;
 import static org.atmosphere.cpr.ApplicationConfig.WEBSOCKET_SUPPORT;
@@ -132,13 +133,13 @@ import static org.atmosphere.cpr.Broadcaster.ROOT_MASTER;
 import static org.atmosphere.cpr.FrameworkConfig.ATMOSPHERE_CONFIG;
 import static org.atmosphere.cpr.FrameworkConfig.CDI_INJECTOR;
 import static org.atmosphere.cpr.FrameworkConfig.GUICE_INJECTOR;
-import static org.atmosphere.cpr.FrameworkConfig.KAFKA_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.HAZELCAST_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.INJECT_LIBARY;
 import static org.atmosphere.cpr.FrameworkConfig.JERSEY_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.JERSEY_CONTAINER;
 import static org.atmosphere.cpr.FrameworkConfig.JGROUPS_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.JMS_BROADCASTER;
+import static org.atmosphere.cpr.FrameworkConfig.KAFKA_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.RABBITMQ_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.REDIS_BROADCASTER;
 import static org.atmosphere.cpr.FrameworkConfig.RMI_BROADCASTER;
@@ -187,16 +188,16 @@ public class AtmosphereFramework {
     protected final ConcurrentLinkedQueue<BroadcasterCacheInspector> inspectors = new ConcurrentLinkedQueue<BroadcasterCacheInspector>();
 
     protected String mappingRegex = MAPPING_REGEX;
-    protected boolean useNativeImplementation = false;
-    protected boolean useBlockingImplementation = false;
+    protected boolean useNativeImplementation;
+    protected boolean useBlockingImplementation;
     protected boolean useStreamForFlushingComments = true;
     protected boolean useServlet30 = true;
     protected AsyncSupport asyncSupport;
     protected String broadcasterClassName = DefaultBroadcaster.class.getName();
-    protected boolean isCometSupportSpecified = false;
-    protected boolean isBroadcasterSpecified = false;
-    protected boolean isSessionSupportSpecified = false;
-    protected boolean isThrowExceptionOnClonedRequestSpecified = false;
+    protected boolean isCometSupportSpecified;
+    protected boolean isBroadcasterSpecified;
+    protected boolean isSessionSupportSpecified;
+    protected boolean isThrowExceptionOnClonedRequestSpecified;
     protected BroadcasterFactory broadcasterFactory;
     protected String broadcasterFactoryClassName;
     protected String broadcasterCacheClassName;
@@ -207,15 +208,15 @@ public class AtmosphereFramework {
     protected String handlersPath = DEFAULT_HANDLER_PATH;
     protected ServletConfig servletConfig;
     protected boolean autoDetectHandlers = true;
-    private boolean hasNewWebSocketProtocol = false;
+    private boolean hasNewWebSocketProtocol;
     protected String atmosphereDotXmlPath = DEFAULT_ATMOSPHERE_CONFIG_PATH;
     protected String metaServicePath = META_SERVICE;
     protected final LinkedList<AtmosphereInterceptor> interceptors = new LinkedList<AtmosphereInterceptor>();
-    protected boolean scanDone = false;
+    protected boolean scanDone;
     protected String annotationProcessorClassName = "org.atmosphere.cpr.DefaultAnnotationProcessor";
     protected final List<BroadcasterListener> broadcasterListeners = Collections.synchronizedList(new ArrayList<BroadcasterListener>());
     protected String webSocketProcessorClassName = DefaultWebSocketProcessor.class.getName();
-    protected boolean webSocketProtocolInitialized = false;
+    protected boolean webSocketProtocolInitialized;
     protected EndpointMapper<AtmosphereHandlerWrapper> endpointMapper = new DefaultEndpointMapper<AtmosphereHandlerWrapper>();
     protected String libPath = DEFAULT_LIB_PATH;
     protected boolean isInit;
@@ -223,12 +224,12 @@ public class AtmosphereFramework {
     protected final List<String> packages = new ArrayList<String>();
     protected final LinkedList<String> annotationPackages = new LinkedList<String>();
     protected boolean allowAllClassesScan = true;
-    protected boolean annotationFound = false;
-    protected boolean executeFirstSet = false;
+    protected boolean annotationFound;
+    protected boolean executeFirstSet;
     protected AtmosphereObjectFactory<?> objectFactory = new DefaultAtmosphereObjectFactory();
     protected final AtomicBoolean isDestroyed = new AtomicBoolean();
-    protected boolean externalizeDestroy = false;
-    protected AnnotationProcessor annotationProcessor = null;
+    protected boolean externalizeDestroy;
+    protected AnnotationProcessor annotationProcessor;
     protected final List<String> excludedInterceptors = new ArrayList<String>();
     protected final LinkedList<BroadcasterCacheListener> broadcasterCacheListeners = new LinkedList<BroadcasterCacheListener>();
     protected final List<BroadcasterConfig.FilterManipulator> filterManipulators = new ArrayList<BroadcasterConfig.FilterManipulator>();
@@ -239,30 +240,35 @@ public class AtmosphereFramework {
     protected Class<Serializer> defaultSerializerClass;
     protected final List<AtmosphereFrameworkListener> frameworkListeners = new LinkedList<AtmosphereFrameworkListener>();
     private UUIDProvider uuidProvider = new DefaultUUIDProvider();
-    protected final Class<? extends AtmosphereInterceptor>[] defaultInterceptors = new Class[]{
+    protected Thread shutdownHook;
+    public static final List<Class<? extends AtmosphereInterceptor>> DEFAULT_ATMOSPHERE_INTERCEPTORS = new LinkedList() {
+        {
             // Add CORS support
-            CorsInterceptor.class,
+            add(CorsInterceptor.class);
             // Default Interceptor
-            CacheHeadersInterceptor.class,
+            add(CacheHeadersInterceptor.class);
             // WebKit & IE Padding
-            PaddingAtmosphereInterceptor.class,
+            add(PaddingAtmosphereInterceptor.class);
             // Android 2.3.x streaming support
-            AndroidAtmosphereInterceptor.class,
+            add(AndroidAtmosphereInterceptor.class);
             // Heartbeat
-            HeartbeatInterceptor.class,
+            add(HeartbeatInterceptor.class);
             // Add SSE support
-            SSEAtmosphereInterceptor.class,
+            add(SSEAtmosphereInterceptor.class);
             // ADD JSONP support
-            JSONPAtmosphereInterceptor.class,
+            add(JSONPAtmosphereInterceptor.class);
             // ADD Tracking ID Handshake
-            JavaScriptProtocol.class,
+            add(JavaScriptProtocol.class);
             // WebSocket and suspend
-            WebSocketMessageSuspendInterceptor.class,
+            add(WebSocketMessageSuspendInterceptor.class);
             // OnDisconnect
-            OnDisconnectInterceptor.class,
+            add(OnDisconnectInterceptor.class);
             // Idle connection
-            IdleResourceInterceptor.class
+            add(IdleResourceInterceptor.class);
+        }
     };
+    private WebSocketFactory webSocketFactory;
+    private IllegalStateException initializationError;
 
     /**
      * An implementation of {@link AbstractReflectorAtmosphereHandler}.
@@ -289,11 +295,15 @@ public class AtmosphereFramework {
         public final AtmosphereHandler atmosphereHandler;
         public Broadcaster broadcaster;
         public String mapping;
-        public LinkedList<AtmosphereInterceptor> interceptors = new LinkedList<AtmosphereInterceptor>();
+        public final LinkedList<AtmosphereInterceptor> interceptors = new LinkedList<AtmosphereInterceptor>();
         public boolean create;
+        private boolean needRequestScopedInjection;
+        private final boolean wilcardMapping;
 
-        public AtmosphereHandlerWrapper(BroadcasterFactory broadcasterFactory, AtmosphereHandler atmosphereHandler, String mapping) {
+        public AtmosphereHandlerWrapper(BroadcasterFactory broadcasterFactory, final AtmosphereHandler atmosphereHandler, String mapping,
+                                        final AtmosphereConfig config) {
             this.atmosphereHandler = atmosphereHandler;
+
             try {
                 if (broadcasterFactory != null) {
                     this.broadcaster = broadcasterFactory.lookup(mapping, true);
@@ -303,17 +313,49 @@ public class AtmosphereFramework {
             } catch (Exception t) {
                 throw new RuntimeException(t);
             }
+            wilcardMapping = mapping.contains("{") && mapping.contains("}");
+            hookInjection(config);
         }
 
-        public AtmosphereHandlerWrapper(AtmosphereHandler atmosphereHandler, Broadcaster broadcaster) {
+        void hookInjection(final AtmosphereConfig config) {
+            config.startupHook(new AtmosphereConfig.StartupHook() {
+                @Override
+                public void started(AtmosphereFramework framework) {
+                    needRequestScopedInjection = Utils.requestScopedInjection(config, atmosphereHandler);
+                }
+            });
+        }
+
+        public AtmosphereHandlerWrapper(final AtmosphereHandler atmosphereHandler, Broadcaster broadcaster,
+                                        final AtmosphereConfig config) {
             this.atmosphereHandler = atmosphereHandler;
             this.broadcaster = broadcaster;
+            hookInjection(config);
+            wilcardMapping = false;
         }
 
         @Override
         public String toString() {
-            return "AtmosphereHandlerWrapper{ atmosphereHandler=" + atmosphereHandler + ", broadcaster=" +
-                    broadcaster + " }";
+
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < interceptors.size(); i++) {
+                b.append("\n\t").append(i).append(": ").append(interceptors.get(i).getClass().getName());
+            }
+
+            return "\n atmosphereHandler"
+                    + "\n\t" + atmosphereHandler
+                    + "\n interceptors" +
+                    b.toString()
+                    + "\n broadcaster"
+                    + "\t" + broadcaster;
+        }
+
+        public boolean needRequestScopedInjection() {
+            return needRequestScopedInjection;
+        }
+
+        public boolean wildcardMapping() {
+            return wilcardMapping;
         }
     }
 
@@ -428,15 +470,19 @@ public class AtmosphereFramework {
                 } else if (BroadcasterConfig.FilterManipulator.class.isAssignableFrom(c)) {
                     fwk.filterManipulators.add(fwk.newClassInstance(BroadcasterConfig.FilterManipulator.class, c));
                 } else if (WebSocketProtocol.class.isAssignableFrom(c)) {
-                    fwk.webSocketProtocolClassName = WebSocketProtocol.class.getName();
+                    fwk.webSocketProtocolClassName = c.getName();
                 } else if (WebSocketProcessor.class.isAssignableFrom(c)) {
-                    fwk.webSocketProcessorClassName = WebSocketProcessor.class.getName();
+                    fwk.webSocketProcessorClassName = c.getName();
                 } else if (AtmosphereResourceFactory.class.isAssignableFrom(c)) {
                     fwk.setAndConfigureAtmosphereResourceFactory(fwk.newClassInstance(AtmosphereResourceFactory.class, c));
                 } else if (AtmosphereFrameworkListener.class.isAssignableFrom(c)) {
                     fwk.frameworkListener(fwk.newClassInstance(AtmosphereFrameworkListener.class, c));
+                } else if (WebSocketFactory.class.isAssignableFrom(c)) {
+                    fwk.webSocketFactory(fwk.newClassInstance(WebSocketFactory.class, c));
                 } else if (AtmosphereFramework.class.isAssignableFrom(c)) {
                     // No OPS
+                } else if (EndpointMapper.class.isAssignableFrom(c)) {
+                   fwk.endPointMapper(fwk.newClassInstance(EndpointMapper.class, c));
                 } else {
                     logger.warn("{} is not a framework service that could be installed", c.getName());
                 }
@@ -513,7 +559,14 @@ public class AtmosphereFramework {
     public AtmosphereFramework(boolean isFilter, boolean autoDetectHandlers) {
         this.isFilter = isFilter;
         this.autoDetectHandlers = autoDetectHandlers;
-        config = new AtmosphereConfig(this);
+        config = newAtmosphereConfig();
+    }
+
+    /**
+     * Create an instance of {@link org.atmosphere.cpr.AtmosphereConfig}
+     */
+    protected AtmosphereConfig newAtmosphereConfig() {
+        return new AtmosphereConfig(this);
     }
 
     /**
@@ -551,24 +604,80 @@ public class AtmosphereFramework {
         if (!mapping.startsWith("/")) {
             mapping = "/" + mapping;
         }
-        AtmosphereHandlerWrapper w = new AtmosphereHandlerWrapper(broadcasterFactory, h, mapping);
-        w.interceptors = LinkedList.class.isAssignableFrom(l.getClass()) ? LinkedList.class.cast(l) : new LinkedList<AtmosphereInterceptor>(l);
-        addMapping(mapping, w);
+        createWrapperAndConfigureHandler(h, mapping, l);
 
-        initServletProcessor(h);
-
-        if (isInit) {
-            initHandlerInterceptors(w.interceptors);
-        } else {
+        if (!isInit) {
             logger.info("Installed AtmosphereHandler {} mapped to context-path: {}", h.getClass().getName(), mapping);
             logger.info("Installed the following AtmosphereInterceptor mapped to AtmosphereHandler {}", h.getClass().getName());
-            if (l.size() > 0) {
+            if ( !l.isEmpty() ) {
                 for (AtmosphereInterceptor s : l) {
                     logger.info("\t{} : {}", s.getClass().getName(), s);
                 }
             }
         }
         return this;
+    }
+
+    /**
+     * Add an {@link AtmosphereHandler} serviced by the {@link Servlet}.
+     * This API is exposed to allow embedding an Atmosphere application.
+     *
+     * @param mapping     The servlet mapping (servlet path)
+     * @param h           implementation of an {@link AtmosphereHandler}
+     * @param broadcaster The {@link Broadcaster} associated with AtmosphereHandler
+     * @param l           A list of {@link AtmosphereInterceptor}s
+     */
+    public AtmosphereFramework addAtmosphereHandler(String mapping, AtmosphereHandler h, Broadcaster broadcaster, List<AtmosphereInterceptor> l) {
+        if (!mapping.startsWith("/")) {
+            mapping = "/" + mapping;
+        }
+
+        createWrapperAndConfigureHandler(h, mapping, l).broadcaster = broadcaster;
+
+        if (!isInit) {
+            logger.info("Installed AtmosphereHandler {} mapped to context-path {} and Broadcaster Class {}",
+                    new String[]{h.getClass().getName(), mapping, broadcaster.getClass().getName()});
+        } else {
+            logger.debug("Installed AtmosphereHandler {} mapped to context-path {} and Broadcaster Class {}",
+                    new String[]{h.getClass().getName(), mapping, broadcaster.getClass().getName()});
+        }
+
+        if (!l.isEmpty()) {
+            logger.info("Installed AtmosphereInterceptor {} mapped to AtmosphereHandler {}", l, h.getClass().getName());
+        }
+        return this;
+    }
+
+
+    /**
+     * Add an {@link AtmosphereHandler} serviced by the {@link Servlet}.
+     * This API is exposed to allow embedding an Atmosphere application.
+     *
+     * @param mapping       The servlet mapping (servlet path)
+     * @param h             implementation of an {@link AtmosphereHandler}
+     * @param broadcasterId The {@link Broadcaster#getID} value.
+     * @param l             A list of {@link AtmosphereInterceptor}
+     */
+    public AtmosphereFramework addAtmosphereHandler(String mapping, AtmosphereHandler h, String broadcasterId, List<AtmosphereInterceptor> l) {
+        if (!mapping.startsWith("/")) {
+            mapping = "/" + mapping;
+        }
+
+        createWrapperAndConfigureHandler(h, mapping, l).broadcaster.setID(broadcasterId);
+
+        logger.info("Installed AtmosphereHandler {} mapped to context-path: {}", h.getClass().getName(), mapping);
+        if (!l.isEmpty()) {
+            logger.info("Installed AtmosphereInterceptor {} mapped to AtmosphereHandler {}", l, h.getClass().getName());
+        }
+        return this;
+    }
+
+    protected AtmosphereHandlerWrapper createWrapperAndConfigureHandler(AtmosphereHandler h, String mapping, List<AtmosphereInterceptor> l) {
+        AtmosphereHandlerWrapper w = new AtmosphereHandlerWrapper(broadcasterFactory, h, mapping, config);
+        addMapping(mapping, w);
+        addInterceptorToWrapper(w, l);
+        initServletProcessor(h);
+        return w;
     }
 
     /**
@@ -584,6 +693,11 @@ public class AtmosphereFramework {
     }
 
     private AtmosphereFramework addMapping(String path, AtmosphereHandlerWrapper w) {
+        atmosphereHandlers.put(normalizePath(path), w);
+        return this;
+    }
+
+    public String normalizePath(String path) {
         // We are using JAXRS mapping algorithm.
         if (path.contains("*")) {
             path = path.replace("*", mappingRegex);
@@ -592,38 +706,9 @@ public class AtmosphereFramework {
         if (path.endsWith("/")) {
             path = path + mappingRegex;
         }
-
-        atmosphereHandlers.put(path, w);
-        return this;
+        return path;
     }
 
-    /**
-     * Add an {@link AtmosphereHandler} serviced by the {@link Servlet}.
-     * This API is exposed to allow embedding an Atmosphere application.
-     *
-     * @param mapping       The servlet mapping (servlet path)
-     * @param h             implementation of an {@link AtmosphereHandler}
-     * @param broadcasterId The {@link Broadcaster#getID} value.
-     * @param l             An attay of {@link AtmosphereInterceptor}
-     */
-    public AtmosphereFramework addAtmosphereHandler(String mapping, AtmosphereHandler h, String broadcasterId, List<AtmosphereInterceptor> l) {
-        if (!mapping.startsWith("/")) {
-            mapping = "/" + mapping;
-        }
-
-        AtmosphereHandlerWrapper w = new AtmosphereHandlerWrapper(broadcasterFactory, h, mapping);
-        w.broadcaster.setID(broadcasterId);
-        w.interceptors = LinkedList.class.isAssignableFrom(l.getClass()) ? LinkedList.class.cast(l) : new LinkedList<AtmosphereInterceptor>(l);
-
-        initServletProcessor(h);
-
-        addMapping(mapping, w);
-        logger.info("Installed AtmosphereHandler {} mapped to context-path: {}", h.getClass().getName(), mapping);
-        if (l.size() > 0) {
-            logger.info("Installed AtmosphereInterceptor {} mapped to AtmosphereHandler {}", l, h.getClass().getName());
-        }
-        return this;
-    }
 
     /**
      * Add an {@link AtmosphereHandler} serviced by the {@link Servlet}.
@@ -648,39 +733,6 @@ public class AtmosphereFramework {
         } catch (ServletException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    /**
-     * Add an {@link AtmosphereHandler} serviced by the {@link Servlet}.
-     * This API is exposed to allow embedding an Atmosphere application.
-     *
-     * @param mapping     The servlet mapping (servlet path)
-     * @param h           implementation of an {@link AtmosphereHandler}
-     * @param broadcaster The {@link Broadcaster} associated with AtmosphereHandler
-     * @param l           A list of {@link AtmosphereInterceptor}s
-     */
-    public AtmosphereFramework addAtmosphereHandler(String mapping, AtmosphereHandler h, Broadcaster broadcaster, List<AtmosphereInterceptor> l) {
-        if (!mapping.startsWith("/")) {
-            mapping = "/" + mapping;
-        }
-
-        AtmosphereHandlerWrapper w = new AtmosphereHandlerWrapper(h, broadcaster);
-        w.interceptors = LinkedList.class.isAssignableFrom(l.getClass()) ? LinkedList.class.cast(l) : new LinkedList<AtmosphereInterceptor>(l);
-
-        addMapping(mapping, w);
-        initServletProcessor(h);
-        if (!isInit) {
-            logger.info("Installed AtmosphereHandler {} mapped to context-path {} and Broadcaster Class {}",
-                    new String[]{h.getClass().getName(), mapping, broadcaster.getClass().getName()});
-        } else {
-            logger.debug("Installed AtmosphereHandler {} mapped to context-path {} and Broadcaster Class {}",
-                    new String[]{h.getClass().getName(), mapping, broadcaster.getClass().getName()});
-        }
-
-        if (l.size() > 0) {
-            logger.info("Installed AtmosphereInterceptor {} mapped to AtmosphereHandler {}", l, h.getClass().getName());
-        }
-        return this;
     }
 
     /**
@@ -770,35 +822,7 @@ public class AtmosphereFramework {
      */
     public AtmosphereFramework init() {
         try {
-            init(servletConfig == null ? new ServletConfig() {
-
-                @Override
-                public String getServletName() {
-                    return "AtmosphereFramework";
-                }
-
-                @Override
-                public ServletContext getServletContext() {
-                    return (ServletContext) Proxy.newProxyInstance(getClass().getClassLoader(), new Class[]{ServletContext.class},
-                            new InvocationHandler() {
-                                @Override
-                                public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-                                    return ServletProxyFactory.getDefault().proxy(proxy, method, args);
-                                }
-                            }
-                    );
-                }
-
-                @Override
-                public String getInitParameter(String name) {
-                    return initParams.get(name);
-                }
-
-                @Override
-                public Enumeration<String> getInitParameterNames() {
-                    return Collections.enumeration(initParams.values());
-                }
-            } : servletConfig, false);
+            init(servletConfig == null ? new VoidServletConfig(initParams) : servletConfig, false);
         } catch (ServletException e) {
             logger.error("", e);
         }
@@ -839,7 +863,7 @@ public class AtmosphereFramework {
     public AtmosphereFramework init(final ServletConfig sc, boolean wrap) throws ServletException {
         if (isInit) return this;
 
-        servletConfig = servletConfig(sc, wrap);
+        servletConfig(sc, wrap);
         readSystemProperties();
         populateBroadcasterType();
         populateObjectFactoryType();
@@ -855,7 +879,7 @@ public class AtmosphereFramework {
             doInitParamsForWebSocket(servletConfig);
             lookupDefaultObjectFactoryType();
 
-            if (logger.isDebugEnabled()) {
+            if (logger.isTraceEnabled()) {
                 asyncSupportListener(newClassInstance(AsyncSupportListener.class, AsyncSupportListenerAdapter.class));
             }
 
@@ -904,13 +928,23 @@ public class AtmosphereFramework {
                 sharedThreadPools = Boolean.parseBoolean(s);
             }
 
-            Runtime.getRuntime().addShutdownHook(new Thread() {
+            this.shutdownHook = new Thread() {
                 public void run() {
                     AtmosphereFramework.this.destroy();
                 }
-            });
+            };
 
-            info();
+            Runtime.getRuntime().addShutdownHook(this.shutdownHook);
+
+            if (logger.isInfoEnabled()) {
+                info();
+            }
+
+            if (initializationError != null) {
+                logger.trace("ContainerInitalizer exception. May not be an issue if Atmosphere started properly ", initializationError);
+            }
+
+            universe();
         } catch (Throwable t) {
             logger.error("Failed to initialize Atmosphere Framework", t);
 
@@ -933,10 +967,12 @@ public class AtmosphereFramework {
         return this;
     }
 
-    protected ServletConfig servletConfig(final ServletConfig sc, boolean wrap) {
-        ServletConfig servletConfig;
-
+    protected void servletConfig(final ServletConfig sc, boolean wrap) {
         if (wrap) {
+
+            String value = sc.getServletContext().getInitParameter(USE_SERVLET_CONTEXT_PARAMETERS);
+            final boolean useServletContextParameters = value != null && Boolean.valueOf(value);
+
             servletConfig = new ServletConfig() {
 
                 AtomicBoolean done = new AtomicBoolean();
@@ -952,7 +988,11 @@ public class AtmosphereFramework {
                 public String getInitParameter(String name) {
                     String param = initParams.get(name);
                     if (param == null) {
-                        return sc.getInitParameter(name);
+                        param = sc.getInitParameter(name);
+
+                        if (param == null && useServletContextParameters) {
+                            param = sc.getServletContext().getInitParameter(name);
+                        }
                     }
                     return param;
                 }
@@ -975,7 +1015,6 @@ public class AtmosphereFramework {
         } else {
             servletConfig = sc;
         }
-        return servletConfig;
     }
 
     public void reconfigureInitParams(boolean reconfigureInitParams) {
@@ -984,7 +1023,6 @@ public class AtmosphereFramework {
             doInitParamsForWebSocket(servletConfig);
         }
     }
-
 
     private void info() {
 
@@ -1017,9 +1055,8 @@ public class AtmosphereFramework {
         logger.info("Broadcaster Polling Wait Time {}", s == null ? DefaultBroadcaster.POLLING_DEFAULT : s);
         logger.info("Shared ExecutorService supported: {}", sharedThreadPools);
 
-        BroadcasterConfig bc = broadcasterFactory.lookup(Broadcaster.ROOT_MASTER, true).getBroadcasterConfig();
-        if (bc.getExecutorService() != null) {
-            ExecutorService executorService = bc.getExecutorService();
+        ExecutorService executorService = ExecutorsFactory.getMessageDispatcher(config, Broadcaster.ROOT_MASTER);
+        if (executorService != null) {
             if (ThreadPoolExecutor.class.isAssignableFrom(executorService.getClass())) {
                 long max = ThreadPoolExecutor.class.cast(executorService).getMaximumPoolSize();
                 logger.info("Messaging Thread Pool Size: {}",
@@ -1029,11 +1066,11 @@ public class AtmosphereFramework {
             }
         }
 
-        if (bc.getAsyncWriteService() != null) {
-            ExecutorService asyncWriteService = bc.getAsyncWriteService();
-            if (ThreadPoolExecutor.class.isAssignableFrom(asyncWriteService.getClass())) {
+        executorService = ExecutorsFactory.getAsyncOperationExecutor(config, Broadcaster.ROOT_MASTER);
+        if (executorService != null) {
+            if (ThreadPoolExecutor.class.isAssignableFrom(executorService.getClass())) {
                 logger.info("Async I/O Thread Pool Size: {}",
-                        ThreadPoolExecutor.class.cast(asyncWriteService).getMaximumPoolSize());
+                        ThreadPoolExecutor.class.cast(executorService).getMaximumPoolSize());
             } else {
                 logger.info("Async I/O ExecutorService Pool Size unavailable - Not instance of ThreadPoolExecutor");
             }
@@ -1061,7 +1098,12 @@ public class AtmosphereFramework {
         logger.info("\n\n\tFor Atmosphere Framework Commercial Support, visit \n\t{} " +
                 "or send an email to {}\n", "http://www.async-io.org/", "support@async-io.org");
 
-        Universe.broadcasterFactory(broadcasterFactory);
+        if (logger.isTraceEnabled()) {
+            for (Entry<String, AtmosphereHandlerWrapper> e : atmosphereHandlers.entrySet()) {
+                logger.trace("\nConfigured AtmosphereHandler {}\n", e.getKey());
+                logger.trace("{}", e.getValue());
+            }
+        }
     }
 
     protected void universe() {
@@ -1088,41 +1130,56 @@ public class AtmosphereFramework {
         if (!config.getInitParameter(ApplicationConfig.ANALYTICS, true)) return;
 
         final String container = getServletContext().getServerInfo();
-        if (allowAllClassesScan) {
-            Thread t = new Thread() {
-                public void run() {
-                    try {
-                        logger.debug("Retrieving Atmosphere's latest version from http://async-io.org/version.html");
-                        HttpURLConnection urlConnection = (HttpURLConnection)
-                                URI.create("http://async-io.org/version.html").toURL().openConnection();
-                        urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0");
-                        urlConnection.setRequestProperty("Connection", "keep-alive");
-                        urlConnection.setRequestProperty("Cache-Control", "max-age=0");
-                        urlConnection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                        urlConnection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
-                        urlConnection.setRequestProperty("Accept-Charset", "ISO-8859-1,utf-8;q=0.7,*;q=0.3");
-                        urlConnection.setRequestProperty("If-Modified-Since", "ISO-8859-1,utf-8;q=0.7,*;q=0.3");
-                        urlConnection.setInstanceFollowRedirects(true);
+        Thread t = new Thread() {
+            public void run() {
+                try {
+                    logger.debug("Retrieving Atmosphere's latest version from http://async-io.org/version.html");
+                    HttpURLConnection urlConnection = (HttpURLConnection)
+                            URI.create("http://async-io.org/version.html").toURL().openConnection();
+                    urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0");
+                    urlConnection.setRequestProperty("Connection", "keep-alive");
+                    urlConnection.setRequestProperty("Cache-Control", "max-age=0");
+                    urlConnection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                    urlConnection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
+                    urlConnection.setRequestProperty("Accept-Charset", "ISO-8859-1,utf-8;q=0.7,*;q=0.3");
+                    urlConnection.setRequestProperty("If-Modified-Since", "ISO-8859-1,utf-8;q=0.7,*;q=0.3");
+                    urlConnection.setInstanceFollowRedirects(true);
 
-                        BufferedReader in = new BufferedReader(new InputStreamReader(
-                                urlConnection.getInputStream()));
+                    BufferedReader in = new BufferedReader(new InputStreamReader(
+                            urlConnection.getInputStream()));
 
-                        String inputLine;
-                        String newVersion = Version.getRawVersion();
-                        String clientVersion = "2.2.3";
+                    String inputLine;
+                    String newVersion = Version.getRawVersion();
+                    String clientVersion = "2.2.11";
+                    String nextMajorRelease = null;
+                    boolean nextAvailable = false;
+                    if (newVersion.indexOf("SNAPSHOT") == -1) {
                         try {
                             while ((inputLine = in.readLine().trim()) != null) {
-                                if (inputLine.startsWith("ATMO22_VERSION=")) {
-                                    newVersion = inputLine.substring("ATMO22_VERSION=".length());
+                                if (inputLine.startsWith("ATMO23_VERSION=")) {
+                                    newVersion = inputLine.substring("ATMO23_VERSION=".length());
                                 } else if (inputLine.startsWith("CLIENT3_VERSION=")) {
                                     clientVersion = inputLine.substring("CLIENT3_VERSION=".length());
                                     break;
+                                } else if (inputLine.startsWith("ATMO_RELEASE_VERSION=")) {
+                                    nextMajorRelease = inputLine.substring("ATMO_RELEASE_VERSION=".length());
+                                    if (nextMajorRelease.compareTo(Version.getRawVersion()) > 0
+                                            && nextMajorRelease.toLowerCase().indexOf("rc") == -1
+                                            && nextMajorRelease.toLowerCase().indexOf("beta") == -1) {
+                                        nextAvailable = true;
+                                    }
                                 }
                             }
                         } finally {
                             logger.info("Latest version of Atmosphere's JavaScript Client {}", clientVersion);
-                            if (newVersion.compareTo(Version.getRawVersion()) != 0) {
-                                logger.info("\n\n\tCurrent version of Atmosphere {} \n\tNewest version of Atmosphere available {}\n\n", Version.getRawVersion(), newVersion);
+                            if (newVersion.compareTo(Version.getRawVersion()) > 0) {
+                                if (nextAvailable) {
+                                    logger.info("\n\n\tAtmosphere Framework Updates\n\tMinor available (bugs fixes): {}\n\tMajor available (new features): {}", newVersion, nextMajorRelease);
+                                } else {
+                                    logger.info("\n\n\tAtmosphere Framework Updates:\n\tMinor Update available (bugs fixes): {}", newVersion);
+                                }
+                            } else if (nextAvailable) {
+                                logger.info("\n\n\tAtmosphere Framework Updates:\n\tMajor Update available (new features): {}", nextMajorRelease);
                             }
                             try {
                                 in.close();
@@ -1130,17 +1187,17 @@ public class AtmosphereFramework {
                             }
                             urlConnection.disconnect();
                         }
-
-                        JGoogleAnalyticsTracker tracker = new JGoogleAnalyticsTracker(ModuleDetection.detect(), Version.getRawVersion(), "UA-31990725-1");
-                        tracker.trackSynchronously(new FocusPoint(container, new FocusPoint("Atmosphere")));
-
-                    } catch (Throwable e) {
                     }
+
+                    JGoogleAnalyticsTracker tracker = new JGoogleAnalyticsTracker(ModuleDetection.detect(), Version.getRawVersion(), "UA-31990725-1");
+                    tracker.trackSynchronously(new FocusPoint(container, new FocusPoint("Atmosphere")));
+
+                } catch (Throwable e) {
                 }
-            };
-            t.setDaemon(true);
-            t.start();
-        }
+            }
+        };
+        t.setDaemon(true);
+        t.start();
     }
 
     /**
@@ -1168,30 +1225,16 @@ public class AtmosphereFramework {
         if (s == null || !"true".equalsIgnoreCase(s)) {
             logger.info("Installing Default AtmosphereInterceptors");
 
-            // We must reposition
-            LinkedList<AtmosphereInterceptor> copy = null;
-            if (!interceptors.isEmpty()) {
-                copy = new LinkedList<AtmosphereInterceptor>(interceptors);
-                interceptors.clear();
-            }
-
-            for (Class<? extends AtmosphereInterceptor> a : defaultInterceptors) {
+            for (Class<? extends AtmosphereInterceptor> a : DEFAULT_ATMOSPHERE_INTERCEPTORS) {
                 if (!excludedInterceptors.contains(a.getName())) {
                     interceptors.add(newAInterceptor(a));
                 } else {
                     logger.info("Dropping Interceptor {}", a.getName());
                 }
             }
-
-            if (copy != null) {
-                for (AtmosphereInterceptor i : copy) {
-                    interceptor(i);
-                }
-            }
-
             logger.info("Set {} to disable them.", ApplicationConfig.DISABLE_ATMOSPHEREINTERCEPTOR);
         }
-        initInterceptors();
+        addDefaultOrAppInterceptors();
     }
 
     protected AtmosphereInterceptor newAInterceptor(Class<? extends AtmosphereInterceptor> a) {
@@ -1204,12 +1247,6 @@ public class AtmosphereFramework {
             logger.warn("", ex);
         }
         return ai;
-    }
-
-    protected void initGlobalInterceptors() {
-        for (AtmosphereInterceptor i : interceptors) {
-            i.configure(config);
-        }
     }
 
     private static class InterceptorComparator implements Comparator<AtmosphereInterceptor> {
@@ -1266,26 +1303,6 @@ public class AtmosphereFramework {
         }
     }
 
-    public void initHandlerInterceptors(LinkedList<AtmosphereInterceptor> l) {
-        if (l != null) {
-            for (AtmosphereInterceptor c : l) {
-                c.configure(config);
-            }
-
-            l.addAll(interceptors);
-
-            Collections.sort(l, new InterceptorComparator());
-        }
-    }
-
-    protected void initInterceptors() {
-        initGlobalInterceptors();
-
-        for (AtmosphereHandlerWrapper w : atmosphereHandlers.values()) {
-            initHandlerInterceptors(w.interceptors);
-        }
-    }
-
     protected void configureWebDotXmlAtmosphereHandler(ServletConfig sc) {
         String s = sc.getInitParameter(ATMOSPHERE_HANDLER);
         if (s != null) {
@@ -1327,7 +1344,7 @@ public class AtmosphereFramework {
                 broadcasterClassName = lookupDefaultBroadcasterType(broadcasterClassName);
             }
 
-            if (broadcasterFactoryClassName != null) {
+            if (broadcasterFactoryClassName != null && broadcasterFactory == null) {
                 broadcasterFactory = newClassInstance(BroadcasterFactory.class,
                         (Class<BroadcasterFactory>) IOUtils.loadClass(getClass(), broadcasterFactoryClassName));
                 Class<? extends Broadcaster> bc =
@@ -1437,7 +1454,7 @@ public class AtmosphereFramework {
             useStreamForFlushingComments = Boolean.parseBoolean(s);
         }
         s = sc.getInitParameter(PROPERTY_COMET_SUPPORT);
-        if (s != null && !reconfigure) {
+        if (asyncSupport == null && s != null && !reconfigure) {
             asyncSupport = new DefaultAsyncSupportResolver(config).newCometSupport(s);
             isCometSupportSpecified = true;
         }
@@ -1536,10 +1553,10 @@ public class AtmosphereFramework {
             loadAtmosphereDotXml(sc.getServletContext().
                     getResourceAsStream(atmosphereDotXmlPath), urlC);
 
-            if (atmosphereHandlers.size() == 0) {
+            if (atmosphereHandlers.isEmpty()) {
                 autoDetectAtmosphereHandlers(sc.getServletContext(), urlC);
 
-                if (atmosphereHandlers.size() == 0) {
+                if (atmosphereHandlers.isEmpty()) {
                     detectSupportedFramework(sc);
                 }
             }
@@ -1696,8 +1713,14 @@ public class AtmosphereFramework {
      *
      * @param sc the {@link ServletConfig}
      * @throws javax.servlet.ServletException
+     * @Deprecated
      */
     public void initAtmosphereHandler(ServletConfig sc) throws ServletException {
+        initAtmosphereHandler();
+    }
+
+    public void initAtmosphereHandler() throws ServletException {
+
         AtmosphereHandler a;
         AtmosphereHandlerWrapper w;
         for (Entry<String, AtmosphereHandlerWrapper> h : atmosphereHandlers.entrySet()) {
@@ -1707,8 +1730,11 @@ public class AtmosphereFramework {
                 ((AtmosphereServletProcessor) a).init(config);
             }
         }
+        checkWebSocketSupportState();
+    }
 
-        if (atmosphereHandlers.size() == 0 && !SimpleHttpProtocol.class.isAssignableFrom(webSocketProtocol.getClass())) {
+    public void checkWebSocketSupportState(){
+        if (atmosphereHandlers.isEmpty() && !SimpleHttpProtocol.class.isAssignableFrom(webSocketProtocol.getClass())) {
             logger.debug("Adding a void AtmosphereHandler mapped to /* to allow WebSocket application only");
             addAtmosphereHandler(Broadcaster.ROOT_MASTER, new AbstractReflectorAtmosphereHandler() {
                 @Override
@@ -1759,16 +1785,27 @@ public class AtmosphereFramework {
         endpointMapper.configure(config);
     }
 
+    protected void closeAtmosphereResource() {
+        for (AtmosphereResource r : config.resourcesFactory().findAll()) {
+            try {
+                r.resume().close();
+            } catch (IOException e) {
+                logger.trace("", e);
+            }
+        }
+    }
+
     public AtmosphereFramework destroy() {
 
         if (isDestroyed.getAndSet(true)) return this;
 
         onPreDestroy();
 
+        closeAtmosphereResource();
+        destroyInterceptors();
+
         // Invoke ShutdownHook.
         config.destroy();
-
-        ExecutorsFactory.reset(config);
 
         BroadcasterFactory factory = broadcasterFactory;
         if (factory != null) {
@@ -1791,11 +1828,36 @@ public class AtmosphereFramework {
 
         WebSocketProcessorFactory.getDefault().destroy();
 
+        ExecutorsFactory.reset(config);
+
         resetStates();
 
         onPostDestroy();
 
+        try {
+            if (this.shutdownHook != null) {
+                Runtime.getRuntime().removeShutdownHook(this.shutdownHook);
+                shutdownHook = null;
+            }
+        } catch (IllegalStateException ex) {
+            logger.trace("", ex);
+        }
+
         return this;
+    }
+
+    protected void destroyInterceptors() {
+        for (AtmosphereHandlerWrapper w : atmosphereHandlers.values()) {
+            if (w.interceptors != null) {
+                for (AtmosphereInterceptor i : w.interceptors) {
+                    try {
+                        i.destroy();
+                    } catch (Throwable ex) {
+                        logger.warn("", ex);
+                    }
+                }
+            }
+        }
     }
 
     public AtmosphereFramework resetStates() {
@@ -1916,7 +1978,7 @@ public class AtmosphereFramework {
 
                     b = broadcasterFactory.lookup(atmoHandler.getContextRoot(), true);
 
-                    AtmosphereHandlerWrapper wrapper = new AtmosphereHandlerWrapper(handler, b);
+                    AtmosphereHandlerWrapper wrapper = new AtmosphereHandlerWrapper(handler, b, config);
                     addMapping(atmoHandler.getContextRoot(), wrapper);
 
                     String bc = atmoHandler.getBroadcasterCache();
@@ -1946,8 +2008,9 @@ public class AtmosphereFramework {
                             }
                         }
                     }
-                    wrapper.interceptors = l;
-                    if (l.size() > 0) {
+                    addInterceptorToWrapper(wrapper, l);
+
+                    if (!l.isEmpty()) {
                         logger.info("Installed AtmosphereInterceptor {} mapped to AtmosphereHandler {}", l, atmoHandler.getClassName());
                     }
                 }
@@ -2032,7 +2095,7 @@ public class AtmosphereFramework {
             throws MalformedURLException, URISyntaxException {
 
         // If Handler has been added
-        if (atmosphereHandlers.size() > 0) return;
+        if (!atmosphereHandlers.isEmpty()) return;
 
         logger.info("Auto detecting atmosphere handlers {}", handlersPath);
 
@@ -2064,7 +2127,7 @@ public class AtmosphereFramework {
                     if (AtmosphereHandler.class.isAssignableFrom(clazz)) {
                         AtmosphereHandler handler = newClassInstance(AtmosphereHandler.class, (Class<AtmosphereHandler>) clazz);
                         addMapping("/" + handler.getClass().getSimpleName(),
-                                new AtmosphereHandlerWrapper(broadcasterFactory, handler, "/" + handler.getClass().getSimpleName()));
+                                new AtmosphereHandlerWrapper(broadcasterFactory, handler, "/" + handler.getClass().getSimpleName(), config));
                         logger.info("Installed AtmosphereHandler {} mapped to context-path: {}", handler, handler.getClass().getName());
                     }
                 } catch (Throwable t) {
@@ -2298,7 +2361,7 @@ public class AtmosphereFramework {
     }
 
     /**
-     * <tt>true</tt> if Atmosphere uses {@link AtmosphereResponse#getOutputStream()}
+     * <tt>true</tt> if Atmosphere uses {@link AtmosphereResponseImpl#getOutputStream()}
      * by default for write operation.
      *
      * @return the useStreamForFlushingComments
@@ -2312,7 +2375,7 @@ public class AtmosphereFramework {
     }
 
     /**
-     * Set to <tt>true</tt> so Atmosphere uses {@link AtmosphereResponse#getOutputStream()}
+     * Set to <tt>true</tt> so Atmosphere uses {@link AtmosphereResponseImpl#getOutputStream()}
      * by default for write operation. Default is false.
      *
      * @param useStreamForFlushingComments the useStreamForFlushingComments to set
@@ -2534,73 +2597,81 @@ public class AtmosphereFramework {
      * @return this
      */
     public AtmosphereFramework interceptor(AtmosphereInterceptor c) {
-        boolean found = false;
-        for (AtmosphereInterceptor interceptor : interceptors) {
-            if (interceptor.getClass().equals(c.getClass())) {
-                found = true;
-                break;
-            }
-        }
-
-        if (isInit) {
-            c.configure(config);
-        }
-
-        if (!found) {
-            InvokationOrder.PRIORITY p = InvokationOrder.class.isAssignableFrom(c.getClass()) ? InvokationOrder.class.cast(c).priority() : InvokationOrder.AFTER_DEFAULT;
-            positionInterceptor(p, c, interceptors);
-
-            logger.info("Installed AtmosphereInterceptor {} with priority {} ", c, p.name());
-
-            //need insert this new interceptor into all the existing handlers
-            for (AtmosphereHandlerWrapper wrapper : atmosphereHandlers.values()) {
-                wrapper.interceptors.add(c);
-
-                Collections.sort(wrapper.interceptors, new InterceptorComparator());
+        if (!checkDuplicate(c)) {
+            interceptors.add(c);
+            if (isInit) {
+                addInterceptorToAllWrappers(c);
             }
         }
         return this;
     }
 
-    protected void positionInterceptor(InvokationOrder.PRIORITY p, AtmosphereInterceptor c, LinkedList<AtmosphereInterceptor> interceptors) {
-        switch (p) {
-            case AFTER_DEFAULT:
-
-                interceptors.remove(c);
-                if (!checkDuplicate(c)) return;
-
-                interceptors.addLast(c);
-                break;
-            case BEFORE_DEFAULT:
-
-                interceptors.remove(c);
-                if (!checkDuplicate(c)) return;
-
-                int pos = executeFirstSet ? 1 : 0;
-                this.interceptors.add(pos, c);
-                break;
-            case FIRST_BEFORE_DEFAULT:
-                if (executeFirstSet) {
-                    logger.warn("More than one AtmosphereInterceptor are defined to execute before the defaults. {} will be added before {}", c, interceptors.get(0));
-                }
-
-                interceptors.remove(c);
-
-                if (!checkDuplicate(c)) return;
-
-                logger.info("AtmosphereInterceptor {} will always be executed first", c);
-                interceptors.addFirst(c);
-                executeFirstSet = true;
-                break;
+    protected void addDefaultOrAppInterceptors() {
+        for (AtmosphereInterceptor c : interceptors) {
+            addInterceptorToAllWrappers(c);
         }
     }
 
-    private boolean checkDuplicate(AtmosphereInterceptor c) {
-        for (AtmosphereInterceptor i : interceptors) {
-            if (i.getClass().equals(c.getClass()))
-                return false;
+    protected void addInterceptorToAllWrappers(AtmosphereInterceptor c) {
+        c.configure(config);
+        InvokationOrder.PRIORITY p = InvokationOrder.class.isAssignableFrom(c.getClass()) ? InvokationOrder.class.cast(c).priority() : InvokationOrder.AFTER_DEFAULT;
+
+        logger.info("Installed AtmosphereInterceptor {} with priority {} ", c, p.name());
+        //need insert this new interceptor into all the existing handlers
+        for (AtmosphereHandlerWrapper wrapper : atmosphereHandlers.values()) {
+            addInterceptorToWrapper(wrapper, c);
         }
-        return true;
+    }
+
+    protected void addInterceptorToWrapper(AtmosphereHandlerWrapper wrapper, AtmosphereInterceptor c) {
+        if (!checkDuplicate(wrapper.interceptors, c.getClass())) {
+            wrapper.interceptors.add(c);
+            Collections.sort(wrapper.interceptors, new InterceptorComparator());
+        }
+    }
+
+    protected void addInterceptorToWrapper(AtmosphereHandlerWrapper wrapper, List<AtmosphereInterceptor> interceptors) {
+
+        for (AtmosphereInterceptor c : this.interceptors) {
+            addInterceptorToWrapper(wrapper, c);
+        }
+
+        for (AtmosphereInterceptor c : interceptors) {
+            addInterceptorToWrapper(wrapper, c);
+            c.configure(config);
+        }
+    }
+
+    /**
+     * <p>
+     * Checks if an instance of the specified {@link AtmosphereInterceptor} implementation exists in the
+     * {@link #interceptors}.
+     * </p>
+     *
+     * @param c the implementation
+     * @return {@code false} if an instance of the same interceptor's class already exists in  {@link #interceptors}, {@code true} otherwise
+     */
+    private boolean checkDuplicate(final AtmosphereInterceptor c) {
+        return checkDuplicate(interceptors, c.getClass());
+    }
+
+    /**
+     * <p>
+     * Checks in the specified list if there is at least one instance of the given
+     * {@link AtmosphereInterceptor interceptor} implementation class.
+     * </p>
+     *
+     * @param interceptorList the interceptors
+     * @param c               the interceptor class
+     * @return {@code false} if an instance of the class already exists in the list, {@code true} otherwise
+     */
+    private boolean checkDuplicate(final List<AtmosphereInterceptor> interceptorList, Class<? extends AtmosphereInterceptor> c) {
+        for (final AtmosphereInterceptor i : interceptorList) {
+            if (i.getClass().equals(c)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2758,7 +2829,7 @@ public class AtmosphereFramework {
 
             annotationProcessor.configure(config);
 
-            if (packages.size() > 0) {
+            if (!packages.isEmpty()) {
                 for (String s : packages) {
                     annotationProcessor.scan(s);
                 }
@@ -2925,7 +2996,7 @@ public class AtmosphereFramework {
     public AtmosphereFramework addWebSocketHandler(String path, WebSocketHandler handler, AtmosphereHandler h, List<AtmosphereInterceptor> l) {
         WebSocketProcessorFactory.getDefault().getWebSocketProcessor(this)
                 .registerWebSocketHandler(path,
-                        new WebSocketProcessor.WebSocketHandlerProxy(broadcasterFactory.lookup(path, true).getClass(), handler, interceptors));
+                        new WebSocketProcessor.WebSocketHandlerProxy(broadcasterFactory.lookup(path, true).getClass(), handler));
         addAtmosphereHandler(path, h, l);
         return this;
     }
@@ -3049,7 +3120,7 @@ public class AtmosphereFramework {
     }
 
     /**
-     * Exclude an {@link AtmosphereInterceptor} from being added, at startup, by Atmosphere. The default's {@link #defaultInterceptors}
+     * Exclude an {@link AtmosphereInterceptor} from being added, at startup, by Atmosphere. The default's {@link #DEFAULT_ATMOSPHERE_INTERCEPTORS}
      * are candidates for being excluded.
      *
      * @param interceptor an {@link AtmosphereInterceptor} class name
@@ -3143,7 +3214,7 @@ public class AtmosphereFramework {
     }
 
     public Class<? extends AtmosphereInterceptor>[] defaultInterceptors() {
-        return defaultInterceptors;
+        return DEFAULT_ATMOSPHERE_INTERCEPTORS.toArray(new Class[DEFAULT_ATMOSPHERE_INTERCEPTORS.size()]);
     }
 
     public AtmosphereResourceFactory atmosphereFactory() {
@@ -3155,14 +3226,32 @@ public class AtmosphereFramework {
 
     private AtmosphereFramework configureAtmosphereResourceFactory() {
         if (arFactory != null) return this;
-        try {
-            arFactory = newClassInstance(AtmosphereResourceFactory.class, DefaultAtmosphereResourceFactory.class);
-        } catch (InstantiationException e) {
-            logger.error("", e);
-        } catch (IllegalAccessException e) {
-            logger.error("", e);
+
+        synchronized (this) {
+            try {
+                arFactory = newClassInstance(AtmosphereResourceFactory.class, DefaultAtmosphereResourceFactory.class);
+            } catch (InstantiationException e) {
+                logger.error("", e);
+            } catch (IllegalAccessException e) {
+                logger.error("", e);
+            }
+            arFactory.configure(config);
         }
-        arFactory.configure(config);
+        return this;
+    }
+
+    private AtmosphereFramework configureWebSocketFactory() {
+        if (webSocketFactory != null) return this;
+
+        synchronized (this) {
+            try {
+                webSocketFactory = newClassInstance(WebSocketFactory.class, DefaultWebSocketFactory.class);
+            } catch (InstantiationException e) {
+                logger.error("", e);
+            } catch (IllegalAccessException e) {
+                logger.error("", e);
+            }
+        }
         return this;
     }
 
@@ -3362,4 +3451,34 @@ public class AtmosphereFramework {
         return uuidProvider;
     }
 
+    /**
+     * Return the {@link WebSocketFactory}
+     *
+     * @return the {@link WebSocketFactory}
+     */
+    public WebSocketFactory webSocketFactory() {
+        if (webSocketFactory == null) {
+            configureWebSocketFactory();
+        }
+        return webSocketFactory;
+    }
+
+    /**
+     * Configure the {@link WebSocketFactory}
+     *
+     * @param webSocketFactory the {@link WebSocketFactory}
+     * @return this
+     */
+    public AtmosphereFramework webSocketFactory(WebSocketFactory webSocketFactory) {
+        this.webSocketFactory = webSocketFactory;
+        return this;
+    }
+
+    /**
+     * If a {@link ContainerInitializer} fail, log the excetion here.
+     * @param initializationError
+     */
+    public void initializationError(IllegalStateException initializationError) {
+        this.initializationError = initializationError;
+    }
 }

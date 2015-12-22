@@ -40,7 +40,10 @@ public class WriteTimeoutTest {
 
     @BeforeMethod
     public void setUp() throws Exception {
-        config = new AtmosphereFramework().addInitParameter("org.atmosphere.cpr.Broadcaster.writeTimeout", "2000").init().getAtmosphereConfig();
+        config = new AtmosphereFramework()
+            .addInitParameter("org.atmosphere.cpr.Broadcaster.writeTimeout", "2000")
+            .addInitParameter(ApplicationConfig.WEBSOCKET_SUPPRESS_JSR356, "true")
+            .init().getAtmosphereConfig();
         DefaultBroadcasterFactory factory = new DefaultBroadcasterFactory(DefaultBroadcaster.class, "NEVER", config);
         config.framework().setBroadcasterFactory(factory);
         broadcaster = factory.get(DefaultBroadcaster.class, "test");
@@ -60,8 +63,8 @@ public class WriteTimeoutTest {
         atmosphereHandler = new AR(latch);
         ar = new AtmosphereResourceImpl(config,
                 broadcaster,
-                mock(AtmosphereRequest.class),
-                AtmosphereResponse.newInstance(),
+                mock(AtmosphereRequestImpl.class),
+                AtmosphereResponseImpl.newInstance(),
                 mock(BlockingIOCometSupport.class),
                 atmosphereHandler);
 
@@ -86,8 +89,8 @@ public class WriteTimeoutTest {
         atmosphereHandler = new AR(null);
         ar = new AtmosphereResourceImpl(config,
                 broadcaster,
-                mock(AtmosphereRequest.class),
-                AtmosphereResponse.newInstance(),
+                mock(AtmosphereRequestImpl.class),
+                AtmosphereResponseImpl.newInstance(),
                 mock(BlockingIOCometSupport.class),
                 atmosphereHandler);
 

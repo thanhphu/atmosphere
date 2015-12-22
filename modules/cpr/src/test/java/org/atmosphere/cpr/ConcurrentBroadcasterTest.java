@@ -16,6 +16,7 @@
 package org.atmosphere.cpr;
 
 import org.atmosphere.container.BlockingIOCometSupport;
+import org.atmosphere.util.ExecutorsFactory;
 import org.atmosphere.util.SimpleBroadcaster;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -52,6 +53,7 @@ public class ConcurrentBroadcasterTest {
     public void unSetUp() throws Exception {
         broadcaster.destroy();
         config.getBroadcasterFactory().destroy();
+        ExecutorsFactory.reset(config);
     }
 
     public final static class AR implements AtmosphereHandler {
@@ -83,8 +85,8 @@ public class ConcurrentBroadcasterTest {
         @Override
         public void onStateChange(AtmosphereResourceEvent e) throws IOException {
             count.incrementAndGet();
-            // System.out.println("Message received => " + count);
-            //System.out.println(e.getMessage());
+            // logger.info("Message received => " + count);
+            //logger.info(e.getMessage());
         }
 
         @Override
@@ -98,8 +100,8 @@ public class ConcurrentBroadcasterTest {
         atmosphereHandler = new AR();
         ar = new AtmosphereResourceImpl(broadcaster.getBroadcasterConfig().getAtmosphereConfig(),
                 broadcaster,
-                mock(AtmosphereRequest.class),
-                AtmosphereResponse.newInstance(),
+                mock(AtmosphereRequestImpl.class),
+                AtmosphereResponseImpl.newInstance(),
                 mock(BlockingIOCometSupport.class),
                 atmosphereHandler);
 
@@ -128,7 +130,6 @@ public class ConcurrentBroadcasterTest {
         latch.await(60, TimeUnit.SECONDS);
 
         assertEquals(atmosphereHandler.value.get().toString(), b.toString());
-        System.out.println("Took: " + (System.currentTimeMillis() - t1));
     }
 
     @Test
@@ -164,7 +165,6 @@ public class ConcurrentBroadcasterTest {
 
         assertEquals(a.count.get(), count * client);
         //Thread.sleep(600000);
-        System.out.println("Took: " + (System.currentTimeMillis() - t1));
     }
 
     @Test
@@ -209,7 +209,6 @@ public class ConcurrentBroadcasterTest {
 
         assertEquals(a.count.get(), count * client);
         //Thread.sleep(600000);
-        System.out.println("Took: " + (System.currentTimeMillis() - t1));
     }
 
     @Test
@@ -254,7 +253,6 @@ public class ConcurrentBroadcasterTest {
 
         assertEquals(a.count.get(), count * client);
         //Thread.sleep(600000);
-        System.out.println("Took: " + (System.currentTimeMillis() - t1));
     }
 
     @Test
@@ -296,7 +294,6 @@ public class ConcurrentBroadcasterTest {
 
         assertEquals(a.count.get(), count * client);
         //Thread.sleep(600000);
-        System.out.println("Took: " + (System.currentTimeMillis() - t1));
     }
 
     @Test
@@ -311,8 +308,8 @@ public class ConcurrentBroadcasterTest {
         atmosphereHandler = new AR();
         ar = new AtmosphereResourceImpl(broadcaster.getBroadcasterConfig().getAtmosphereConfig(),
                 broadcaster,
-                mock(AtmosphereRequest.class),
-                AtmosphereResponse.newInstance(),
+                mock(AtmosphereRequestImpl.class),
+                AtmosphereResponseImpl.newInstance(),
                 mock(BlockingIOCometSupport.class),
                 atmosphereHandler);
 
@@ -341,14 +338,13 @@ public class ConcurrentBroadcasterTest {
         latch.await(60, TimeUnit.SECONDS);
 
         assertEquals(atmosphereHandler.value.get().toString(), b.toString());
-        System.out.println("Took: " + (System.currentTimeMillis() - t1));
     }
 
     AtmosphereResource newAR(AtmosphereHandler a) {
         return new AtmosphereResourceImpl(broadcaster.getBroadcasterConfig().getAtmosphereConfig(),
                 broadcaster,
-                mock(AtmosphereRequest.class),
-                AtmosphereResponse.newInstance(),
+                mock(AtmosphereRequestImpl.class),
+                AtmosphereResponseImpl.newInstance(),
                 mock(BlockingIOCometSupport.class),
                 a);
     }

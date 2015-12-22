@@ -24,11 +24,14 @@ import org.atmosphere.cpr.AtmosphereInterceptorAdapter;
 import org.atmosphere.cpr.AtmosphereInterceptorWriter;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResponse;
+import org.atmosphere.cpr.AtmosphereResponseImpl;
+import org.atmosphere.cpr.HeaderConfig;
 import org.atmosphere.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.xml.bind.DatatypeConverter;
+
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -66,7 +69,7 @@ public class TrackMessageSizeB64Interceptor extends AtmosphereInterceptorAdapter
     /**
      * Excluse response's content-type from being processed by this class.
      *
-     * @param excludedContentType the value of {@link org.atmosphere.cpr.AtmosphereResponse#getContentType()}
+     * @param excludedContentType the value of {@link AtmosphereResponseImpl#getContentType()}
      * @return this
      */
     public TrackMessageSizeB64Interceptor excludedContentType(String excludedContentType) {
@@ -102,6 +105,7 @@ public class TrackMessageSizeB64Interceptor extends AtmosphereInterceptorAdapter
         public byte[] transformPayload(AtmosphereResponse response, byte[] responseDraft, byte[] data) throws IOException {
 
             if (response.request().getAttribute(SKIP_INTERCEPTOR) == null
+                    && Boolean.valueOf(response.request().getHeader(HeaderConfig.X_ATMOSPHERE_TRACKMESSAGESIZE))
                     && (response.getContentType() == null
                     || !excludedContentTypes.contains(response.getContentType().toLowerCase()))) {
                 response.setCharacterEncoding(OUT_ENCODING);

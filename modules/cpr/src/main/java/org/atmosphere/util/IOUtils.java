@@ -20,6 +20,7 @@ import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AtmosphereConfig;
 import org.atmosphere.cpr.AtmosphereFramework;
 import org.atmosphere.cpr.AtmosphereRequest;
+import org.atmosphere.cpr.AtmosphereRequestImpl;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceImpl;
 import org.atmosphere.cpr.AtmosphereServlet;
@@ -29,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.servlet.ServletContext;
+import javax.servlet.ServletRegistration;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -85,19 +87,7 @@ public class IOUtils {
         final DeliverTo.DELIVER_TO deliverTo = deliverConfig == null ? defaultDeliver : deliverConfig.value();
         switch (deliverTo) {
             case RESOURCE:
-                if (o != null) {
-                    try {
-                        synchronized (r) {
-                            if (String.class.isAssignableFrom(o.getClass())) {
-                                r.write(o.toString()).getResponse().flushBuffer();
-                            } else if (byte[].class.isAssignableFrom(o.getClass())) {
-                                r.write((byte[]) o).getResponse().flushBuffer();
-                            }
-                        }
-                    } catch (Exception ex) {
-                        logger.warn("", ex);
-                    }
-                }
+                r.getBroadcaster().broadcast(o, r);
                 break;
             case BROADCASTER:
                 r.getBroadcaster().broadcast(o);
@@ -137,7 +127,7 @@ public class IOUtils {
 
         boolean readGetBody = r.getAtmosphereConfig().getInitParameter(ApplicationConfig.READ_GET_BODY, false);
         if (!readGetBody && AtmosphereResourceImpl.class.cast(r).getRequest(false).getMethod().equalsIgnoreCase("GET")) {
-            logger.warn("Blocking an I/O read operation from a GET request. To enable GET + body, set {} to true", ApplicationConfig.READ_GET_BODY);
+            logger.debug("Blocking an I/O read operation from a GET request. To enable GET + body, set {} to true", ApplicationConfig.READ_GET_BODY);
             return stringBuilder;
         }
 
@@ -181,7 +171,7 @@ public class IOUtils {
                 }
             }
         } else {
-            AtmosphereRequest.Body body = request.body();
+            AtmosphereRequestImpl.Body body = request.body();
             try {
                 stringBuilder.append(body.hasString() ? body.asString() : new String(body.asBytes(), body.byteOffset(), body.byteLength(), request.getCharacterEncoding()));
             } catch (UnsupportedEncodingException e) {
@@ -196,11 +186,11 @@ public class IOUtils {
 
         boolean readGetBody = r.getAtmosphereConfig().getInitParameter(ApplicationConfig.READ_GET_BODY, false);
         if (!readGetBody && AtmosphereResourceImpl.class.cast(r).getRequest(false).getMethod().equalsIgnoreCase("GET")) {
-            logger.warn("Blocking an I/O read operation from a GET request. To enable GET + body, set {} to true", ApplicationConfig.READ_GET_BODY);
+            logger.debug("Blocking an I/O read operation from a GET request. To enable GET + body, set {} to true", ApplicationConfig.READ_GET_BODY);
             return new byte[0];
         }
 
-        AtmosphereRequest.Body body = request.body();
+        AtmosphereRequestImpl.Body body = request.body();
         if (request.body().isEmpty()) {
             BufferedInputStream bufferedStream = null;
             ByteArrayOutputStream bbIS = new ByteArrayOutputStream();
@@ -252,18 +242,57 @@ public class IOUtils {
         throw new IllegalStateException("No body " + r);
     }
 
-
     public static String guestServletPath(AtmosphereConfig config) {
         String servletPath = "";
-        try {
-            // TODO: pick up the first one, will fail if there are two
-            servletPath = config.getServletContext().getServletRegistration(config.getServletConfig().getServletName()).getMappings().iterator().next();
-            servletPath = getCleanedServletPath(servletPath);
-        } catch (Exception ex) {
-            logger.trace("", ex);
+        if (config.getServletConfig() != null) {
+            servletPath = getCleanedServletPath(guestRawServletPath(config));
+        } else {
+            throw new IllegalStateException("Unable to configure jsr356 at that stage");
         }
         return servletPath;
     }
+
+    public static String guestRawServletPath(AtmosphereConfig config) {
+        String servletPath = "";
+        try {
+            if (config.getServletConfig() != null) {
+                ServletRegistration s = config.getServletContext().getServletRegistration(config.getServletConfig().getServletName());
+
+                if (s == null) {
+                    s = config.getServletContext().getServletRegistration(VoidServletConfig.ATMOSPHERE_SERVLET);
+                }
+
+                if ( s == null) {
+                    for (Map.Entry<String, ? extends ServletRegistration> servlet : config.getServletContext().getServletRegistrations().entrySet()) {
+                        if (knownClasses.contains(servlet.getValue().getClassName())) {
+                            s = servlet.getValue();
+                            break;
+                        }
+                    }
+
+                    if (s == null) {
+                        throw new IllegalStateException("Unable to configure jsr356 at that stage. No Servlet associated with "
+                                + config.getServletConfig().getServletName());
+                    }
+                }
+
+                if (s.getMappings().size() > 1) {
+                    logger.warn("More than one Servlet Mapping defined. WebSocket may not work {}", s);
+                }
+
+                for (String m : s.getMappings()) {
+                    servletPath = m;
+                }
+            } else {
+                throw new IllegalStateException("Unable to configure jsr356 at that stage");
+            }
+            return servletPath;
+        } catch (Exception ex) {
+            logger.error("", ex);
+            throw new IllegalStateException("Unable to configure jsr356 at that stage");
+        }
+    }
+
 
     /**
      * Used to remove trailing slash and wildcard from a servlet path.<br/><br/>
@@ -318,11 +347,30 @@ public class IOUtils {
         return false;
     }
 
-    public static Class<?> loadClass(Class thisClass, String className) throws Exception {
+    /**
+     * Loading the specified class using some heuristics to support various containers
+     * The order of preferece is:
+     *  1. Thread.currentThread().getContextClassLoader()
+     *  2. Class.forName
+     *  3. thisClass.getClassLoader()
+     *
+     * @param thisClass
+     * @param className
+     * @return
+     * @throws Exception
+     */
+    public static Class<?> loadClass(Class<?> thisClass, String className) throws Exception {
         try {
             return Thread.currentThread().getContextClassLoader().loadClass(className);
         } catch (Throwable t) {
-            return thisClass.getClassLoader().loadClass(className);
+            try {
+                return Class.forName(className);
+            } catch (Exception t2) {
+                if (thisClass != null) {
+                    return thisClass.getClassLoader().loadClass(className);
+                }
+                throw t2;
+            }
         }
     }
 

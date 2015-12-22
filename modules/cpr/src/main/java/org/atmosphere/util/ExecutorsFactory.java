@@ -20,6 +20,7 @@ import org.atmosphere.cpr.AtmosphereConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -27,6 +28,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.atmosphere.cpr.ApplicationConfig.USE_FORJOINPOOL;
 
 /**
  * Stateless Factory to create {@link ExecutorService} used in all Atmosphere Component. By default they are
@@ -45,6 +48,24 @@ public class ExecutorsFactory {
     public final static String SCHEDULER_THREAD_POOL = "scheduler";
     public final static String BROADCASTER_THREAD_POOL = "executorService";
 
+    public final static class AtmosphereThreadFactory implements ThreadFactory {
+        private final AtomicInteger count = new AtomicInteger();
+        private final boolean shared;
+        private final String name;
+
+        public AtmosphereThreadFactory(boolean shared, String name) {
+            this.shared = shared;
+            this.name = name;
+        }
+
+        @Override
+        public Thread newThread(final Runnable runnable) {
+            Thread t = new Thread(runnable, (shared ? "Atmosphere-Shared-" : name) + count.getAndIncrement());
+            t.setDaemon(true);
+            return t;
+        }
+    }
+
     /**
      * Create an {@link ExecutorService} to be used for dispatching messages, not I/O events.
      *
@@ -55,7 +76,7 @@ public class ExecutorsFactory {
     public static ExecutorService getMessageDispatcher(final AtmosphereConfig config, final String name) {
         final boolean shared = config.framework().isShareExecutorServices();
 
-        boolean isExecutorShared = shared ? true : false;
+        boolean useForkJoinPool = config.getInitParameter(USE_FORJOINPOOL, true);
         if (!shared || config.properties().get(BROADCASTER_THREAD_POOL) == null) {
             int numberOfMessageProcessingThread = DEFAULT_MESSAGE_THREAD;
             String s = config.getInitParameter(ApplicationConfig.BROADCASTER_MESSAGE_PROCESSING_THREADPOOL_MAXSIZE);
@@ -63,38 +84,22 @@ public class ExecutorsFactory {
                 numberOfMessageProcessingThread = Integer.parseInt(s);
             }
 
-            if (isExecutorShared && numberOfMessageProcessingThread == 1) {
+            if (shared && numberOfMessageProcessingThread == 1) {
                 logger.warn("Not enough numberOfMessageProcessingThread for a shareable thread pool {}, " +
                         "Setting it to a newCachedThreadPool", numberOfMessageProcessingThread);
                 numberOfMessageProcessingThread = -1;
             }
 
-            ThreadPoolExecutor messageService;
+            AbstractExecutorService messageService;
             logger.trace("Max number of DispatchOp {}", numberOfMessageProcessingThread == -1 ? "Unlimited" : numberOfMessageProcessingThread);
+            String threadName = name + "-DispatchOp-";
+
             if (numberOfMessageProcessingThread == -1) {
-                messageService = (ThreadPoolExecutor) Executors.newCachedThreadPool(new ThreadFactory() {
-
-                    private final AtomicInteger count = new AtomicInteger();
-
-                    @Override
-                    public Thread newThread(final Runnable runnable) {
-                        Thread t = new Thread(runnable, (shared ? "Atmosphere-Shared" : name) + "-DispatchOp-" + count.getAndIncrement());
-                        t.setDaemon(true);
-                        return t;
-                    }
-                });
+                messageService = !useForkJoinPool ? (ThreadPoolExecutor) Executors.newCachedThreadPool(new AtmosphereThreadFactory(shared, threadName))
+                        : new ForkJoinPool(shared, threadName);
             } else {
-                messageService = (ThreadPoolExecutor) Executors.newFixedThreadPool(numberOfMessageProcessingThread, new ThreadFactory() {
-
-                    private final AtomicInteger count = new AtomicInteger();
-
-                    @Override
-                    public Thread newThread(final Runnable runnable) {
-                        Thread t = new Thread(runnable, (shared ? "Atmosphere-Shared" : name) + "-DispatchOp-" + count.getAndIncrement());
-                        t.setDaemon(true);
-                        return t;
-                    }
-                });
+                messageService = (ThreadPoolExecutor) Executors.newFixedThreadPool(numberOfMessageProcessingThread,
+                        new AtmosphereThreadFactory(shared, threadName));
             }
 
             keepAliveThreads(messageService, config);
@@ -108,7 +113,13 @@ public class ExecutorsFactory {
         }
     }
 
-    private static void keepAliveThreads(ThreadPoolExecutor e, AtmosphereConfig config) {
+    private static void keepAliveThreads(AbstractExecutorService t, AtmosphereConfig config) {
+
+        if (!ThreadPoolExecutor.class.isAssignableFrom(t.getClass())) {
+            return;
+        }
+
+        ThreadPoolExecutor e = ThreadPoolExecutor.class.cast(t);
         int keepAlive = DEFAULT_KEEP_ALIVE;
         String s = config.getInitParameter(ApplicationConfig.EXECUTORFACTORY_KEEP_ALIVE);
         if (s != null) {
@@ -128,7 +139,6 @@ public class ExecutorsFactory {
     public static ExecutorService getAsyncOperationExecutor(final AtmosphereConfig config, final String name) {
         final boolean shared = config.framework().isShareExecutorServices();
 
-        boolean isAsyncExecutorShared = shared ? true : false;
         if (!shared || config.properties().get(ASYNC_WRITE_THREAD_POOL) == null) {
             int numberOfAsyncThread = DEFAULT_ASYNC_THREAD;
             String s = config.getInitParameter(ApplicationConfig.BROADCASTER_ASYNC_WRITE_THREADPOOL_MAXSIZE);
@@ -136,38 +146,23 @@ public class ExecutorsFactory {
                 numberOfAsyncThread = Integer.parseInt(s);
             }
 
-            if (isAsyncExecutorShared && numberOfAsyncThread == 1) {
+            if (shared && numberOfAsyncThread == 1) {
                 logger.warn("Not enough numberOfAsyncThread for a shareable thread pool {}, " +
                         "Setting it to a newCachedThreadPool", numberOfAsyncThread);
                 numberOfAsyncThread = -1;
             }
 
-            ThreadPoolExecutor asyncWriteService;
+            AbstractExecutorService asyncWriteService;
+            boolean useForkJoinPool = config.getInitParameter(USE_FORJOINPOOL, true);
             logger.trace("Max number of AsyncOp {}", numberOfAsyncThread == -1 ? "Unlimited" : numberOfAsyncThread);
+            String threadName = name + "-AsyncOp-";
+
             if (numberOfAsyncThread == -1) {
-                asyncWriteService = (ThreadPoolExecutor) Executors.newCachedThreadPool(new ThreadFactory() {
-
-                    private final AtomicInteger count = new AtomicInteger();
-
-                    @Override
-                    public Thread newThread(final Runnable runnable) {
-                        Thread t = new Thread(runnable, (shared ? "Atmosphere-Shared" : name) + "-AsyncOp-" + count.getAndIncrement());
-                        t.setDaemon(true);
-                        return t;
-                    }
-                });
+                asyncWriteService = !useForkJoinPool ? (ThreadPoolExecutor) Executors.newCachedThreadPool(new AtmosphereThreadFactory(shared, threadName))
+                        : new ForkJoinPool(shared, threadName);
             } else {
-                asyncWriteService = (ThreadPoolExecutor) Executors.newFixedThreadPool(numberOfAsyncThread, new ThreadFactory() {
-
-                    private final AtomicInteger count = new AtomicInteger();
-
-                    @Override
-                    public Thread newThread(final Runnable runnable) {
-                        Thread t = new Thread(runnable, (shared ? "Atmosphere-Shared" : name) + "-AsyncOp-" + count.getAndIncrement());
-                        t.setDaemon(true);
-                        return t;
-                    }
-                });
+                asyncWriteService = (ThreadPoolExecutor) Executors.newFixedThreadPool(numberOfAsyncThread,
+                        new AtmosphereThreadFactory(shared, threadName));
             }
 
             keepAliveThreads(asyncWriteService, config);
@@ -209,7 +204,7 @@ public class ExecutorsFactory {
                 config.properties().put(SCHEDULER_THREAD_POOL, scheduler);
             }
 
-            keepAliveThreads((ThreadPoolExecutor)scheduler, config);
+            keepAliveThreads((ThreadPoolExecutor) scheduler, config);
 
             return scheduler;
         } else {
@@ -222,18 +217,18 @@ public class ExecutorsFactory {
         if (e != null) {
             e.shutdown();
         }
-        config.properties().put(ASYNC_WRITE_THREAD_POOL, null);
+        config.properties().remove(ASYNC_WRITE_THREAD_POOL);
 
         e = (ExecutorService) config.properties().get(SCHEDULER_THREAD_POOL);
         if (e != null) {
             e.shutdown();
         }
-        config.properties().put(SCHEDULER_THREAD_POOL, null);
+        config.properties().remove(SCHEDULER_THREAD_POOL);
 
         e = (ExecutorService) config.properties().get(BROADCASTER_THREAD_POOL);
         if (e != null) {
             e.shutdown();
         }
-        config.properties().put(BROADCASTER_THREAD_POOL, null);
+        config.properties().remove(BROADCASTER_THREAD_POOL);
     }
 }

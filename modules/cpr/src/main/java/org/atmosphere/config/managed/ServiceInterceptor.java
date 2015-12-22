@@ -24,10 +24,16 @@ import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.Broadcaster;
 import org.atmosphere.cpr.FrameworkConfig;
 import org.atmosphere.interceptor.InvokationOrder;
+import org.atmosphere.util.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.inject.Named;
 
 public abstract class ServiceInterceptor extends AtmosphereInterceptorAdapter {
+    private final Logger logger = LoggerFactory.getLogger(ServiceInterceptor.class);
+
     protected AtmosphereConfig config;
-    protected boolean wildcardMapping = false;
 
     public ServiceInterceptor() {
     }
@@ -35,24 +41,27 @@ public abstract class ServiceInterceptor extends AtmosphereInterceptorAdapter {
     @Override
     public void configure(AtmosphereConfig config) {
         this.config = config;
-        optimizeMapping();
     }
 
     @Override
     public Action inspect(AtmosphereResource r) {
-        if (!wildcardMapping) return Action.CONTINUE;
+        AtmosphereFramework.AtmosphereHandlerWrapper w = null;
+        try {
+            w = (AtmosphereFramework.AtmosphereHandlerWrapper)
+                                        r.getRequest().getAttribute(FrameworkConfig.ATMOSPHERE_HANDLER_WRAPPER);
 
-        mapAnnotatedService(r.getRequest(), (AtmosphereFramework.AtmosphereHandlerWrapper)
-                r.getRequest().getAttribute(FrameworkConfig.ATMOSPHERE_HANDLER_WRAPPER));
+            if (!w.wildcardMapping()) return Action.CONTINUE;
 
-        return Action.CONTINUE;
-    }
+            mapAnnotatedService(r.getRequest(), w);
 
-    protected void optimizeMapping() {
-        for (String w : config.handlers().keySet()) {
-            if (w.contains("{") && w.contains("}")) {
-                wildcardMapping = true;
-                break;
+            return Action.CONTINUE;
+        } finally {
+            if (w != null && w.needRequestScopedInjection()) {
+                try {
+                    Utils.inject(r);
+                } catch (IllegalAccessException e) {
+                    logger.error("", e);
+                }
             }
         }
     }
@@ -72,27 +81,16 @@ public abstract class ServiceInterceptor extends AtmosphereInterceptorAdapter {
         String pathInfo = null;
         boolean reMap = false;
 
-        try {
-            pathInfo = request.getPathInfo();
-        } catch (IllegalStateException ex) {
-            // http://java.net/jira/browse/GRIZZLY-1301
-        }
-
-        if (pathInfo != null) {
-            path = request.getServletPath() + pathInfo;
-        } else {
-            path = request.getServletPath();
-        }
-
-        if (path == null || path.isEmpty()) {
-            path = "/";
-        }
+        path = Utils.pathInfo(request);
 
         // Remove the Broadcaster with curly braces
         if (b.getID().contains("{")) {
             reMap = true;
             config.getBroadcasterFactory().remove(b.getID());
         }
+
+        request.localAttributes().put(Named.class.getName(), path);
+
         mapAnnotatedService(reMap, path, request, w);
     }
 

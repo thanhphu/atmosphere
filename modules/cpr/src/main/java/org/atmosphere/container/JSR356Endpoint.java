@@ -19,7 +19,8 @@ import org.atmosphere.container.version.JSR356WebSocket;
 import org.atmosphere.cpr.ApplicationConfig;
 import org.atmosphere.cpr.AtmosphereFramework;
 import org.atmosphere.cpr.AtmosphereRequest;
-import org.atmosphere.cpr.AtmosphereResponse;
+import org.atmosphere.cpr.AtmosphereRequestImpl;
+import org.atmosphere.cpr.AtmosphereResponseImpl;
 import org.atmosphere.util.IOUtils;
 import org.atmosphere.websocket.WebSocket;
 import org.atmosphere.websocket.WebSocketEventListener;
@@ -101,15 +102,6 @@ public class JSR356Endpoint extends Endpoint {
 
         if (framework.isDestroyed()) return;
 
-        if (!webSocketProcessor.handshake(request)) {
-            try {
-                session.close(new CloseReason(CloseReason.CloseCodes.CANNOT_ACCEPT, "Handshake not accepted."));
-            } catch (IOException e) {
-                logger.trace("", e);
-            }
-            return;
-        }
-
         if (!session.isOpen()) {
             logger.trace("Session Closed {}", session);
             return;
@@ -122,37 +114,55 @@ public class JSR356Endpoint extends Endpoint {
         webSocket = new JSR356WebSocket(session, framework.getAtmosphereConfig());
 
         Map<String, String> headers = new HashMap<String, String>();
+        // TODO: We don't support multi map header, which cause => https://github.com/Atmosphere/atmosphere/issues/1945
         for (Map.Entry<String, List<String>> e : handshakeRequest.getHeaders().entrySet()) {
-            headers.put(e.getKey(), e.getValue().size() > 0 ? e.getValue().get(0) : "");
+            headers.put(e.getKey(), !e.getValue().isEmpty() ? e.getValue().get(0) : "");
         }
+
+        // Force WebSocket. Hack for https://github.com/Atmosphere/atmosphere/issues/1944
+        headers.put("Connection", "Upgrade");
 
         String servletPath = framework.getAtmosphereConfig().getInitParameter(ApplicationConfig.JSR356_MAPPING_PATH);
         if (servletPath == null) {
             servletPath = IOUtils.guestServletPath(framework.getAtmosphereConfig());
         }
 
+        boolean recomputeForBackwardCompat = false;
         URI uri = session.getRequestURI();
-        String[] paths = uri.getPath() != null ? uri.getPath().split("/") : new String[]{};
-
-        int pathInfoStartIndex = 3;
+        String rawPath = uri.getPath();
         String contextPath = framework.getAtmosphereConfig().getServletContext().getContextPath();
-        if ("".equals(contextPath) || "".equals(servletPath)) {
-            pathInfoStartIndex = 2;
+        int pathInfoStartAt = rawPath.indexOf(servletPath) + servletPath.length();
+
+        String pathInfo = null;
+        if (rawPath.length() >= pathInfoStartAt) {
+            pathInfo = rawPath.substring(pathInfoStartAt);
+        } else {
+            recomputeForBackwardCompat = true;
         }
 
-        // /contextPath/servletPath/pathInfo or /servletPath/pathInfo
-        StringBuffer b = new StringBuffer("/");
-        for (int i = 0; i < paths.length; i++) {
-            if (i >= pathInfoStartIndex) {
-                b.append(paths[i]).append("/");
+        if (recomputeForBackwardCompat) {
+            // DON"T SCREAM this code is for broken/backward compatible
+            String[] paths = uri.getPath() != null ? uri.getPath().split("/") : new String[]{};
+
+            int pathInfoStartIndex = 3;
+            if ("".equals(contextPath) || "".equals(servletPath)) {
+                pathInfoStartIndex = 2;
             }
+            ///contextPath / servletPath / pathInfo or / servletPath / pathInfo
+            StringBuffer b = new StringBuffer("/");
+            for (int i = 0; i < paths.length; i++) {
+                if (i >= pathInfoStartIndex) {
+                    b.append(paths[i]).append("/");
+                }
+            }
+
+            if (b.length() > 1) {
+                b.deleteCharAt(b.length() - 1);
+            }
+
+            pathInfo = b.toString();
         }
 
-        if (b.length() > 1) {
-            b.deleteCharAt(b.length() - 1);
-        }
-
-        String pathInfo = b.toString();
         if (pathInfo.equals("/")) {
             pathInfo = null;
         }
@@ -173,7 +183,7 @@ public class JSR356Endpoint extends Endpoint {
                         l = handshakeRequest.getHeaders().get("Origin");
                     }
                     String origin;
-                    if (l != null && l.size() > 0) {
+                    if (l != null && !l.isEmpty()) {
                         origin = l.get(0);
                     } else {
                         // Broken WebSocket Spec
@@ -188,7 +198,7 @@ public class JSR356Endpoint extends Endpoint {
                 }
             }
 
-            request = new AtmosphereRequest.Builder()
+            request = new AtmosphereRequestImpl.Builder()
                     .requestURI(uri.getPath())
                     .requestURL(requestURL)
                     .headers(headers)
@@ -196,6 +206,7 @@ public class JSR356Endpoint extends Endpoint {
                     .servletPath(servletPath)
                     .contextPath(framework.getServletContext().getContextPath())
                     .pathInfo(pathInfo)
+                    .destroyable(false)
                     .userPrincipal(session.getUserPrincipal())
                     .remoteInetSocketAddress(new Callable<InetSocketAddress>() {
                         @Override
@@ -212,10 +223,19 @@ public class JSR356Endpoint extends Endpoint {
                     .build()
                     .queryString(session.getQueryString());
 
+            if (!webSocketProcessor.handshake(request)) {
+                try {
+                    session.close(new CloseReason(CloseReason.CloseCodes.CANNOT_ACCEPT, "Handshake not accepted."));
+                } catch (IOException e) {
+                    logger.trace("", e);
+                }
+                return;
+            }
+
             // TODO: Fix this crazy code.
             framework.addInitParameter(ALLOW_QUERYSTRING_AS_REQUEST, "false");
 
-            webSocketProcessor.open(webSocket, request, AtmosphereResponse.newInstance(framework.getAtmosphereConfig(), request, webSocket));
+            webSocketProcessor.open(webSocket, request, AtmosphereResponseImpl.newInstance(framework.getAtmosphereConfig(), request, webSocket));
 
             framework.addInitParameter(ALLOW_QUERYSTRING_AS_REQUEST, "true");
 

@@ -35,6 +35,7 @@ import java.io.IOException;
  */
 public class AtmosphereServlet extends HttpServlet {
 
+    private static final long serialVersionUID = 7526472295622776146L;
     protected static final Logger logger = LoggerFactory.getLogger(AtmosphereServlet.class);
     protected final AtmosphereFrameworkInitializer initializer;
 
@@ -187,6 +188,6 @@ public class AtmosphereServlet extends HttpServlet {
     @Override
     public void doPost(HttpServletRequest req, HttpServletResponse res)
             throws IOException, ServletException {
-        framework().doCometSupport(AtmosphereRequest.wrap(req), AtmosphereResponse.wrap(res));
+        framework().doCometSupport(AtmosphereRequestImpl.wrap(req), AtmosphereResponseImpl.wrap(res));
     }
 }
